@@ -1,9 +1,9 @@
 use gba_recomp::rom::{crc32, Rom, ROM_BASE};
-use gba_recomp::{arm, discover::discover, thumb};
+use gba_recomp::{arm, discover::{discover, discover_from, thumb_pointers}, thumb};
 
 fn usage() -> ! {
     eprintln!(
-        "gba-recomp <order>\n  info <rom.gba>                      header, checks and CRC32\n  disasm <rom.gba> <addr> [n] [thumb]  disassemble n instructions (default 32) at a bus address (hex)\n  trace <rom.gba> [entry]              follow the flow of control from the entry point and summarize"
+        "gba-recomp <order>\n  info <rom.gba>                      header, checks and CRC32\n  disasm <rom.gba> <addr> [n] [thumb]  disassemble n instructions (default 32) at a bus address (hex)\n  trace <rom.gba> [entry] [--pointers] follow the flow of control from the entry point and summarize (--pointers: also from the Thumb function pointers in the data)"
     );
     std::process::exit(2)
 }
@@ -57,8 +57,16 @@ fn main() {
             }
         }
         "trace" => {
-            let entry = args.get(2).map(|s| parse_addr(s)).or(rom.header().entry_target).unwrap_or(ROM_BASE);
-            let d = discover(&rom, entry);
+            let entry = args.get(2).filter(|s| !s.starts_with('-')).map(|s| parse_addr(s)).or(rom.header().entry_target).unwrap_or(ROM_BASE);
+            let d = if args.iter().any(|a| a == "--pointers") {
+                let ptrs = thumb_pointers(&rom);
+                println!("thumb pointers {}", ptrs.len());
+                let mut roots = vec![(entry, false)];
+                roots.extend(ptrs.into_iter().map(|a| (a, true)));
+                discover_from(&rom, &roots)
+            } else {
+                discover(&rom, entry)
+            };
             let arm_n = d.code.values().filter(|(t, _)| !*t).count();
             let thumb_n = d.code.values().filter(|(t, _)| *t).count();
             let bytes: u32 = d.code.values().map(|(_, s)| *s).sum();
@@ -71,6 +79,9 @@ fn main() {
             println!("outside ROM   {} targets", d.outside.len());
             println!("undefined     {}", d.undefined.len());
             println!("BIOS calls    {:?}", d.swis);
+            for a in &d.undefined {
+                println!("  undefined at 0x{a:08X}");
+            }
             for a in d.outside.iter().take(8) {
                 println!("  outside 0x{a:08X}");
             }

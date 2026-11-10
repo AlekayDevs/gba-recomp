@@ -36,10 +36,32 @@ fn arm_literal(insn: u32, pc: u32) -> Option<(u32, u32)> {
 }
 
 pub fn discover(rom: &Rom, entry: u32) -> Discovery {
+    discover_from(rom, &[(entry, false)])
+}
+
+/// Thumb function pointers found in the data of the ROM: aligned words, odd, that point at a `PUSH {..., LR}`.
+/// The pointer tables and literal pools that the flow cannot reach hold the functions that are called indirectly.
+pub fn thumb_pointers(rom: &Rom) -> Vec<u32> {
+    let mut out = BTreeSet::new();
+    let mut a = 0u32;
+    while let Some(w) = rom.read32(crate::rom::ROM_BASE + a) {
+        if w & 1 == 1 && (0x0800_0000..0x0800_0000 + rom.data.len() as u32).contains(&w) {
+            if rom.read16(w & !1).is_some_and(|h| h & 0xFF00 == 0xB500) {
+                out.insert(w & !1);
+            }
+        }
+        a += 4;
+    }
+    out.into_iter().collect()
+}
+
+pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
     let mut d = Discovery::default();
     let mut work: VecDeque<(u32, bool)> = VecDeque::new();
-    d.functions.insert(entry);
-    work.push_back((entry, false));
+    for &(a, t) in roots {
+        d.functions.insert(a);
+        work.push_back((a, t));
+    }
 
     while let Some((start, thumb)) = work.pop_front() {
         let mut pc = start;
