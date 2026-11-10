@@ -27,6 +27,8 @@ Hallazgos para lo que viene:
 - `0x08000EF2`..`0x08000F00` son los `__call_via_rN` de libgcc (`bx r0`..`bx r12`): casi todas las llamadas por puntero pasan por ahí; el destino está en los datos.
 - Pendiente del analizador: punteros a funciones ARM (pares), tablas de saltos de `switch`, validar los candidatos (decodificar un tramo entero válido) y desambiguar código y datos.
 
+`discover_with` valida los candidatos de los datos (Thumb y punteros ARM a `STMFD ..,LR`): cada uno se recorre aparte y se descarta si llega a una indefinida o sale de la ROM. Con *Minish Cap* y `--pointers`: 258 976 instrucciones, 7095 funciones, 0 indefinidas, 7 candidatos descartados.
+
 Siguiente: lo anterior, la generación de C y el runtime (memoria, E/S, PPU, BIOS).
 
 ## Reglas

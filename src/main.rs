@@ -1,5 +1,5 @@
 use gba_recomp::rom::{crc32, Overlay, Rom, ROM_BASE};
-use gba_recomp::{arm, discover::{discover, discover_from, thumb_pointers}, thumb};
+use gba_recomp::{arm, discover::{arm_pointers, discover, discover_with, thumb_pointers}, thumb};
 
 fn usage() -> ! {
     eprintln!(
@@ -71,10 +71,12 @@ fn main() {
             let entry = args.get(2).filter(|s| !s.starts_with('-') && !s.contains(':')).map(|s| parse_addr(s)).or(rom.header().entry_target).unwrap_or(ROM_BASE);
             let d = if args.iter().any(|a| a == "--pointers") {
                 let ptrs = thumb_pointers(&rom);
-                println!("thumb pointers {}", ptrs.len());
-                let mut roots = vec![(entry, false)];
-                roots.extend(ptrs.into_iter().map(|a| (a, true)));
-                discover_from(&rom, &roots)
+                let aptrs = arm_pointers(&rom);
+                println!("thumb pointers {}, ARM pointers {}", ptrs.len(), aptrs.len());
+                let mut cands: Vec<(u32, bool)> = ptrs.into_iter().map(|a| (a, true)).collect();
+                cands.extend(aptrs.into_iter().map(|a| (a, false)));
+                cands.sort();
+                discover_with(&rom, &[(entry, false)], &cands)
             } else {
                 discover(&rom, entry)
             };
@@ -90,6 +92,7 @@ fn main() {
             println!("unresolved    {} indirect jumps", d.unresolved.len());
             println!("outside ROM   {} targets", d.outside.len());
             println!("undefined     {}", d.undefined.len());
+            println!("rejected      {} candidates from the data", d.rejected.len());
             println!("BIOS calls    {:?}", d.swis);
             for a in &d.undefined {
                 println!("  undefined at 0x{a:08X}");

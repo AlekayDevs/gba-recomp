@@ -12,8 +12,8 @@ Estado a 2026-11-10. El motor es propio y estático (Rust), hermano de `snes-rec
 
 ## 1. Analizador (lo que falta del descubrimiento)
 
-- [ ] **Validar los candidatos a función**: ahora un puntero impar a un `PUSH {..,LR}` basta. Hay 7 «indefinidas» en datos (`0x084A717A`, `0x087F60F8`, `0x088087A6`, `0x0880DD78`...). Descartar la función entera si su recorrido llega a una instrucción indefinida o a datos; mirar también la longitud y que acabe en un retorno.
-- [ ] **Punteros a funciones ARM** (direcciones pares): hoy solo se buscan Thumb. Sin ellos el código ARM de la ROM (el de IWRAM se ve por los *overlays*) queda corto: 341 instrucciones ARM en total.
+- [x] **Validar los candidatos a función**: cada candidato de los datos se recorre aparte y solo se acepta si no llega a una instrucción indefinida ni sale de la ROM (`discover_with`). Con *Minish Cap*: 0 indefinidas, 7 candidatos descartados. Falta mirar que acabe en un retorno.
+- [x] **Punteros a funciones ARM** (direcciones pares a un `STMFD SP!,{..,LR}`): 4 candidatos, ARM pasa de 341 a 886 instrucciones. Faltan las funciones ARM sin ese prólogo.
 - [ ] **Separar código y datos**: los pools de literales y las tablas dentro del código se detectan por no alcanzarse; hay que marcarlos para no volver a tratarlos como código al recorrer linealmente y para no emitirlos.
 - [ ] **Resolver más saltos**: `ldr rX,[rBase,rIndex]; bx rX` con una tabla de punteros (hay 2 en `0x0800129A` y `0x080012C4`); `bx r12` tras `mov r12, lr` (retorno, no salto); no confundir los `__call_via_rN` de libgcc (`0x08000EF2`..`0x08000F00`).
 - [ ] **Tablas de `switch` de ARM** (el analizador solo reconoce las de Thumb) y las de otras formas (`TBB`-like no existen en ARMv4, pero hay variantes con `add pc, pc, r0, lsl #2`).

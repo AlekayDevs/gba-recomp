@@ -22,6 +22,8 @@ pub struct Discovery {
     /// BIOS calls used.
     pub swis: BTreeMap<u32, u32>,
     pub undefined: BTreeSet<u32>,
+    /// Candidates from the data that were discarded because the code they reach does not decode.
+    pub rejected: BTreeSet<u32>,
     /// Recognised `switch` tables: address of the indirect jump -> targets.
     pub tables: BTreeMap<u32, Vec<u32>>,
 }
@@ -57,7 +59,26 @@ pub fn thumb_pointers(rom: &Rom) -> Vec<u32> {
     out.into_iter().collect()
 }
 
+/// ARM function pointers in the data: aligned even words that point at an `STMFD SP!, {..., LR}`.
+pub fn arm_pointers(rom: &Rom) -> Vec<u32> {
+    let mut out = BTreeSet::new();
+    let mut a = 0u32;
+    while let Some(w) = rom.read32(crate::rom::ROM_BASE + a) {
+        if w & 3 == 0 && rom.offset(w).is_some() && rom.read32(w).is_some_and(|i| i & 0xFFFF_4000 == 0xE92D_4000) {
+            out.insert(w);
+        }
+        a += 4;
+    }
+    out.into_iter().collect()
+}
+
 pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
+    discover_with(rom, roots, &[])
+}
+
+/// Roots that are certain (the entry, calls) are followed first; the candidates found in the data (`candidates`) are each tried on their own
+/// and kept only if the code they reach decodes cleanly: no undefined instruction, and everything stays in the ROM or the overlays.
+pub fn discover_with(rom: &Rom, roots: &[(u32, bool)], candidates: &[(u32, bool)]) -> Discovery {
     let mut d = Discovery::default();
     let mut work: VecDeque<(u32, bool)> = VecDeque::new();
     for &(a, t) in roots {
@@ -65,7 +86,41 @@ pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
         d.functions.insert(a);
         work.push_back((a, t));
     }
+    walk(rom, &mut d, None, work);
+    for &(a, t) in candidates {
+        let a = canon(a);
+        if d.code.contains_key(&a) {
+            d.functions.insert(a);
+            continue;
+        }
+        let mut t_d = Discovery::default();
+        t_d.functions.insert(a);
+        walk(rom, &mut t_d, Some(&d), VecDeque::from([(a, t)]));
+        if t_d.undefined.is_empty() && t_d.outside.is_empty() && t_d.code.len() >= 2 {
+            d.merge(t_d);
+        } else {
+            d.rejected.insert(a);
+        }
+    }
+    d
+}
 
+impl Discovery {
+    fn merge(&mut self, o: Discovery) {
+        self.code.extend(o.code);
+        self.functions.extend(o.functions);
+        self.blocks.extend(o.blocks);
+        self.unresolved.extend(o.unresolved);
+        self.resolved.extend(o.resolved);
+        self.outside.extend(o.outside);
+        for (k, v) in o.swis {
+            *self.swis.entry(k).or_insert(0) += v;
+        }
+        self.tables.extend(o.tables);
+    }
+}
+
+fn walk(rom: &Rom, d: &mut Discovery, base: Option<&Discovery>, mut work: VecDeque<(u32, bool)>) {
     while let Some((start, thumb)) = work.pop_front() {
         let mut pc = start;
         // register -> (constant, instructions ago) from the literals loaded just before
@@ -74,7 +129,7 @@ pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
         // the last Thumb halfwords, to recognise the `switch` sequence
         let mut hist: Vec<u16> = Vec::new();
         loop {
-            if d.code.contains_key(&pc) {
+            if d.code.contains_key(&pc) || base.is_some_and(|b| b.code.contains_key(&pc)) {
                 break;
             }
             if rom.offset(pc).is_none() {
@@ -131,17 +186,17 @@ pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
                 } else {
                     d.blocks.insert(t);
                 }
-                if !d.code.contains_key(&t) {
+                if !d.code.contains_key(&t) && !base.is_some_and(|b| b.code.contains_key(&t)) {
                     work.push_back((t, th));
                 }
             };
             match flow {
                 Flow::Next | Flow::CondIndirect { .. } => {}
                 Flow::Swi(n) => *d.swis.entry(n).or_insert(0) += 1,
-                Flow::CondBranch(t) => push(&mut d, t, thumb, false),
-                Flow::Call(t) | Flow::CondCall(t) => push(&mut d, t, thumb, true),
+                Flow::CondBranch(t) => push(d, t, thumb, false),
+                Flow::Call(t) | Flow::CondCall(t) => push(d, t, thumb, true),
                 Flow::Branch(t) => {
-                    push(&mut d, t, thumb, false);
+                    push(d, t, thumb, false);
                     break;
                 }
                 Flow::Indirect { ret, thumb_switch } => {
@@ -161,7 +216,7 @@ pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
                     match resolved {
                         Some(t) => {
                             d.resolved.insert(pc, t);
-                            push(&mut d, t & !1, t & 1 != 0, true);
+                            push(d, t & !1, t & 1 != 0, true);
                         }
                         None if !ret && !popped => {
                             // `CMP Rx, #N` ... `LDR Rt, =table` ... `LDR Rx, [Rx]` ... `MOV PC, Rx`: a table of N+1 targets
@@ -169,7 +224,7 @@ pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
                             match table {
                                 Some(targets) => {
                                     for &t in &targets {
-                                        push(&mut d, t & !1, true, false);
+                                        push(d, t & !1, true, false);
                                     }
                                     d.tables.insert(pc, targets);
                                 }
@@ -199,7 +254,6 @@ pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
             pc += size;
         }
     }
-    d
 }
 
 /// Whether the instruction `text` writes register `r` (first operand, or the list of a `pop` / `ldm`). Conservative: a store also counts.
