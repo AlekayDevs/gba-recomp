@@ -100,7 +100,7 @@ fn main() {
             for (a, t) in &d.resolved {
                 println!("  resolved bx at 0x{a:08X} -> 0x{t:08X}");
             }
-            for (a, t) in d.unresolved.iter().take(12) {
+            for (a, t) in d.unresolved.iter().take(if args.iter().any(|x| x == "--all") { usize::MAX } else { 12 }) {
                 println!("  unresolved {} at 0x{a:08X}", if *t { "thumb" } else { "arm" });
             }
         }

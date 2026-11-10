@@ -61,6 +61,7 @@ pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
     let mut d = Discovery::default();
     let mut work: VecDeque<(u32, bool)> = VecDeque::new();
     for &(a, t) in roots {
+        let a = canon(a);
         d.functions.insert(a);
         work.push_back((a, t));
     }
@@ -87,6 +88,9 @@ pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
                 let lit = if h >> 11 == 0b01001 {
                     let addr = ((pc + 4) & !3) + (h as u32 & 0xFF) * 4;
                     rom.read32(addr).map(|v| ((h as u32 >> 8) & 7, v))
+                } else if h >> 11 == 0b10100 {
+                    // ADD Rd, PC, #imm: the address of code that follows, to be reached with BX
+                    Some(((h as u32 >> 8) & 7, ((pc + 4) & !3) + (h as u32 & 0xFF) * 4))
                 } else {
                     None
                 };
@@ -94,7 +98,15 @@ pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
             } else {
                 let Some(w) = rom.read32(pc) else { break };
                 let i = arm::decode(w, pc);
-                let lit = arm_literal(w, pc).and_then(|(rd, a)| rom.read32(a).map(|v| (rd, v)));
+                let lit = arm_literal(w, pc).and_then(|(rd, a)| rom.read32(a).map(|v| (rd, v))).or_else(|| {
+                    // ADD Rd, PC, #imm (the usual `adr` + `bx` to switch to Thumb)
+                    if w >> 28 != 15 && w & 0x0FFF_0000 == 0x028F_0000 {
+                        let imm = (w & 0xFF).rotate_right(((w >> 8) & 0xF) * 2);
+                        Some(((w >> 12) & 0xF, pc.wrapping_add(8).wrapping_add(imm)))
+                    } else {
+                        None
+                    }
+                });
                 (i.size, i.flow, lit, i.text)
             };
             d.code.insert(pc, (thumb, size));
@@ -109,6 +121,7 @@ pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
                 lits.push((rd, v, 0));
             }
             let mut push = |d: &mut Discovery, t: u32, th: bool, func: bool| {
+                let t = canon(t);
                 if rom.offset(t).is_none() {
                     d.outside.insert(t);
                     return;
@@ -152,7 +165,7 @@ pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
                         }
                         None if !ret && !popped => {
                             // `CMP Rx, #N` ... `LDR Rt, =table` ... `LDR Rx, [Rx]` ... `MOV PC, Rx`: a table of N+1 targets
-                            let table = if thumb { switch_table(rom, &hist, &lits) } else { None };
+                            let table = if thumb { switch_table(rom, pc) } else { None };
                             match table {
                                 Some(targets) => {
                                     for &t in &targets {
@@ -204,16 +217,39 @@ fn writes(text: &str, r: u32) -> bool {
     rest.split(',').next().is_some_and(|f| f.trim().trim_end_matches('!') == name)
 }
 
-/// Looks for the compare that bounds the index (`CMP Rx, #N` in the last instructions) and the literal that holds the base of the table.
-fn switch_table(rom: &Rom, hist: &[u16], lits: &[(u32, u32, u32)]) -> Option<Vec<u32>> {
-    let n = hist.iter().rev().find(|&&h| h & 0xF800 == 0x2800).map(|&h| (h & 0xFF) as u32)?;
-    let base = lits.iter().filter(|l| (0x0800_0000..0x0A00_0000).contains(&l.1) && l.1 & 3 == 0).min_by_key(|l| l.2)?.1;
+/// Looks back in the code for the compare that bounds the index (`CMP Rx, #N`) and the literal that holds the base of the table,
+/// reading the halfwords before the jump (the block may have been entered after the compare, at the `BLS` target).
+fn switch_table(rom: &Rom, pc: u32) -> Option<Vec<u32>> {
+    let mut n = None;
+    let mut base = None;
+    for i in 1..=12u32 {
+        let at = pc.checked_sub(2 * i)?;
+        let h = rom.read16(at)? as u32;
+        if n.is_none() && h & 0xF800 == 0x2800 {
+            n = Some(h & 0xFF);
+        }
+        if base.is_none() && h >> 11 == 0b01001 {
+            let v = rom.read32(((at + 4) & !3) + (h & 0xFF) * 4)?;
+            if rom.offset(v).is_some() && v & 3 == 0 {
+                base = Some(v);
+            }
+        }
+    }
+    let (n, base) = (n?, base?);
     let mut out = Vec::new();
     for i in 0..=n {
         let t = rom.read32(base + i * 4)?;
-        // every target must be in the ROM (the first ones decide: a table of data would fail here)
+        // every target must be in the ROM and near the jump (a table of data would fail here)
         rom.offset(t & !1)?;
+        if (t & 0x01FF_FFFF).abs_diff(pc & 0x01FF_FFFF) > 0x10000 {
+            return None;
+        }
         out.push(t);
     }
     Some(out)
+}
+
+/// The address of ROM code seen through the mirrors (`$0A000000`, `$0C000000`) as `$08000000`.
+pub fn canon(a: u32) -> u32 {
+    if (0x0A00_0000..0x0E00_0000).contains(&a) { 0x0800_0000 | (a & 0x01FF_FFFF) } else { a }
 }
