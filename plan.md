@@ -4,6 +4,8 @@ Estado a 2026-11-10. El motor es propio y estático (Rust), hermano de `snes-rec
 
 ## Hecho
 
+- **El juego arranca y llega al título y a «CHOOSE A FILE» pulsando Start** (*Minish Cap*, sin ventana): traducción de Thumb y ARM a C (7095 de 7095 funciones), runtime con bus, E/S, DMA, temporizadores, interrupciones, BIOS por HLE y PPU por líneas; `tools/complete.sh` completa los saltos dinámicos que el análisis no ve (la ejecución los pide uno a uno). Pendiente: sonido, guardado, ventana/entrada real, el resto de la BIOS y la jugabilidad.
+
 - Lector de ROM: cabecera, comprobaciones, CRC32, espejos (`0x08/0x0A/0x0C`) y *overlays* (bloques que el arranque copia a RAM).
 - Decodificadores ARM y Thumb: texto y flujo de control (`Flow`); 4 pruebas.
 - Descubrimiento de código desde la entrada: `BX` con literal, `ADD Rd,PC` + `BX`, punteros Thumb de los datos, tablas de `switch` de Thumb.
