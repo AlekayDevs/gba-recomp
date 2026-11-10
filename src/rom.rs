@@ -2,8 +2,18 @@
 
 pub const ROM_BASE: u32 = 0x0800_0000;
 
+/// A block of the ROM that the game copies into RAM at boot and runs from there (IWRAM code, mostly).
+/// Seen from the analyzer it is code at its RAM addresses whose bytes live in the ROM.
+#[derive(Debug, Clone, Copy)]
+pub struct Overlay {
+    pub ram: u32,
+    pub rom: u32,
+    pub len: u32,
+}
+
 pub struct Rom {
     pub data: Vec<u8>,
+    pub overlays: Vec<Overlay>,
 }
 
 #[derive(Debug)]
@@ -23,11 +33,16 @@ impl Rom {
         if data.len() < 0xC0 {
             return Err(format!("{path}: too small for a GBA ROM"));
         }
-        Ok(Rom { data })
+        Ok(Rom { data, overlays: Vec::new() })
     }
 
     /// Offset into the ROM of a bus address, if the address is in the ROM area (any of the three mirrors).
     pub fn offset(&self, addr: u32) -> Option<usize> {
+        for o in &self.overlays {
+            if addr >= o.ram && addr < o.ram + o.len {
+                return self.offset(o.rom + (addr - o.ram));
+            }
+        }
         if !(0x0800_0000..0x0E00_0000).contains(&addr) {
             return None;
         }

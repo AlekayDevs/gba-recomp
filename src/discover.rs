@@ -22,6 +22,8 @@ pub struct Discovery {
     /// BIOS calls used.
     pub swis: BTreeMap<u32, u32>,
     pub undefined: BTreeSet<u32>,
+    /// Recognised `switch` tables: address of the indirect jump -> targets.
+    pub tables: BTreeMap<u32, Vec<u32>>,
 }
 
 /// If `insn` is an ARM `LDR Rd, [PC, #±imm]`, the register and the address of the literal.
@@ -45,7 +47,7 @@ pub fn thumb_pointers(rom: &Rom) -> Vec<u32> {
     let mut out = BTreeSet::new();
     let mut a = 0u32;
     while let Some(w) = rom.read32(crate::rom::ROM_BASE + a) {
-        if w & 1 == 1 && (0x0800_0000..0x0800_0000 + rom.data.len() as u32).contains(&w) {
+        if w & 1 == 1 && rom.offset(w & !1).is_some() {
             if rom.read16(w & !1).is_some_and(|h| h & 0xFF00 == 0xB500) {
                 out.insert(w & !1);
             }
@@ -68,6 +70,8 @@ pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
         // register -> (constant, instructions ago) from the literals loaded just before
         let mut lits: Vec<(u32, u32, u32)> = Vec::new();
         let mut prev = String::new();
+        // the last Thumb halfwords, to recognise the `switch` sequence
+        let mut hist: Vec<u16> = Vec::new();
         loop {
             if d.code.contains_key(&pc) {
                 break;
@@ -97,7 +101,7 @@ pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
             for l in lits.iter_mut() {
                 l.2 += 1;
             }
-            lits.retain(|l| l.2 <= 4);
+            lits.retain(|l| l.2 <= 6);
             // an instruction that writes a register drops the literal it held
             lits.retain(|l| !writes(&text, l.0));
             if let Some((rd, v)) = lit {
@@ -147,7 +151,19 @@ pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
                             push(&mut d, t & !1, t & 1 != 0, true);
                         }
                         None if !ret && !popped => {
-                            d.unresolved.insert(pc, thumb);
+                            // `CMP Rx, #N` ... `LDR Rt, =table` ... `LDR Rx, [Rx]` ... `MOV PC, Rx`: a table of N+1 targets
+                            let table = if thumb { switch_table(rom, &hist, &lits) } else { None };
+                            match table {
+                                Some(targets) => {
+                                    for &t in &targets {
+                                        push(&mut d, t & !1, true, false);
+                                    }
+                                    d.tables.insert(pc, targets);
+                                }
+                                None => {
+                                    d.unresolved.insert(pc, thumb);
+                                }
+                            }
                         }
                         None => {}
                     }
@@ -156,6 +172,14 @@ pub fn discover_from(rom: &Rom, roots: &[(u32, bool)]) -> Discovery {
                 Flow::Undefined => {
                     d.undefined.insert(pc);
                     break;
+                }
+            }
+            if thumb {
+                if let Some(h) = rom.read16(pc) {
+                    hist.push(h);
+                    if hist.len() > 12 {
+                        hist.remove(0);
+                    }
                 }
             }
             prev = text;
@@ -178,4 +202,18 @@ fn writes(text: &str, r: u32) -> bool {
         return rest.split(|c: char| !c.is_alphanumeric()).any(|w| w == name);
     }
     rest.split(',').next().is_some_and(|f| f.trim().trim_end_matches('!') == name)
+}
+
+/// Looks for the compare that bounds the index (`CMP Rx, #N` in the last instructions) and the literal that holds the base of the table.
+fn switch_table(rom: &Rom, hist: &[u16], lits: &[(u32, u32, u32)]) -> Option<Vec<u32>> {
+    let n = hist.iter().rev().find(|&&h| h & 0xF800 == 0x2800).map(|&h| (h & 0xFF) as u32)?;
+    let base = lits.iter().filter(|l| (0x0800_0000..0x0A00_0000).contains(&l.1) && l.1 & 3 == 0).min_by_key(|l| l.2)?.1;
+    let mut out = Vec::new();
+    for i in 0..=n {
+        let t = rom.read32(base + i * 4)?;
+        // every target must be in the ROM (the first ones decide: a table of data would fail here)
+        rom.offset(t & !1)?;
+        out.push(t);
+    }
+    Some(out)
 }

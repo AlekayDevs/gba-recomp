@@ -1,9 +1,9 @@
-use gba_recomp::rom::{crc32, Rom, ROM_BASE};
+use gba_recomp::rom::{crc32, Overlay, Rom, ROM_BASE};
 use gba_recomp::{arm, discover::{discover, discover_from, thumb_pointers}, thumb};
 
 fn usage() -> ! {
     eprintln!(
-        "gba-recomp <order>\n  info <rom.gba>                      header, checks and CRC32\n  disasm <rom.gba> <addr> [n] [thumb]  disassemble n instructions (default 32) at a bus address (hex)\n  trace <rom.gba> [entry] [--pointers] follow the flow of control from the entry point and summarize (--pointers: also from the Thumb function pointers in the data)"
+        "gba-recomp <order>\n  info <rom.gba>                      header, checks and CRC32\n  disasm <rom.gba> <addr> [n] [thumb]  disassemble n instructions (default 32) at a bus address (hex)\n  trace <rom.gba> [entry] [--pointers] [--overlay RAM:ROM:LEN]... follow the flow of control from the entry point and summarize (--pointers: also from the Thumb function pointers in the data)"
     );
     std::process::exit(2)
 }
@@ -15,13 +15,24 @@ fn parse_addr(s: &str) -> u32 {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first() else { usage() };
-    let rom = match args.get(1) {
+    let mut rom = match args.get(1) {
         Some(p) => Rom::load(p).unwrap_or_else(|e| {
             eprintln!("{e}");
             std::process::exit(1)
         }),
         None => usage(),
     };
+    // --overlay RAM:ROM:LEN (hex, repeatable): a block copied from the ROM to RAM at boot
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--overlay" {
+            let v: Vec<u32> = it.next().map(|s| s.split(':').map(parse_addr).collect()).unwrap_or_else(|| usage());
+            if v.len() != 3 {
+                usage()
+            }
+            rom.overlays.push(Overlay { ram: v[0], rom: v[1], len: v[2] });
+        }
+    }
     match cmd.as_str() {
         "info" => {
             let h = rom.header();
@@ -57,7 +68,7 @@ fn main() {
             }
         }
         "trace" => {
-            let entry = args.get(2).filter(|s| !s.starts_with('-')).map(|s| parse_addr(s)).or(rom.header().entry_target).unwrap_or(ROM_BASE);
+            let entry = args.get(2).filter(|s| !s.starts_with('-') && !s.contains(':')).map(|s| parse_addr(s)).or(rom.header().entry_target).unwrap_or(ROM_BASE);
             let d = if args.iter().any(|a| a == "--pointers") {
                 let ptrs = thumb_pointers(&rom);
                 println!("thumb pointers {}", ptrs.len());
@@ -75,6 +86,7 @@ fn main() {
             println!("functions     {}", d.functions.len());
             println!("blocks        {}", d.blocks.len());
             println!("BX resolved   {}", d.resolved.len());
+            println!("switch tables {} ({} targets)", d.tables.len(), d.tables.values().map(|t| t.len()).sum::<usize>());
             println!("unresolved    {} indirect jumps", d.unresolved.len());
             println!("outside ROM   {} targets", d.outside.len());
             println!("undefined     {}", d.undefined.len());
