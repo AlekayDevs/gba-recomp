@@ -14,6 +14,8 @@ cargo test                                            # decodificadores ARM y Th
 
 ## Estado
 
+El plan completo (pendiente, orden y riesgos) está en `plan.md`.
+
 Decidido: motor propio y estático en Rust, sin dependencias por ahora (`docs/investigacion.md`). Hecho: `src/rom.rs` (cabecera, mapa de direcciones, CRC32), `src/arm.rs` y `src/thumb.rs` (decodificación: texto y `Flow`), `src/discover.rs` (sigue el flujo; resuelve `BX Rm` solo con un literal cargado justo antes; con `trace --pointers` añade como raíces los punteros Thumb impares de los datos que apuntan a un `PUSH {..,LR}`).
 
 `src/discover.rs` reconoce también las tablas de `switch` de Thumb (`CMP Rx,#N` + `LDR Rt,=tabla` + `MOV PC,Rx`, mirando hacia atrás en el código porque el bloque puede empezar en el destino del `BLS`), `ADD Rd,PC,#imm` + `BX` (cambio a ARM/Thumb) y los espejos de la ROM (`0x0A000000`, `0x0C000000` se tratan como `0x08000000`). `src/rom.rs` tiene *overlays* (`--overlay RAM:ROM:LEN`): bloques que el arranque copia a RAM y se analizan con sus direcciones de RAM. Con *Minish Cap* USA y todo eso (`trace --pointers --overlay 030056F0:080B197C:135C --overlay 0300404C:080AF3A4:380`): 258 487 instrucciones (559 KB), 7088 funciones, 131 tablas de `switch` (1811 destinos) y 15 saltos indirectos sin resolver, que son dinámicos por naturaleza: los `__call_via_rN` (`bx r0..r12` en `0x08000EF2`), llamadas por tabla de punteros indexada (`ldr r1,[r2,r1]; bx r1`) y retornos tras `mov r12, lr`. El generador de C tendrá que emitir para ellos un despacho por dirección contra la tabla de funciones descubiertas (y un respaldo si no está).
