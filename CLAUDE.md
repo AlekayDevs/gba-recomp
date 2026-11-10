@@ -35,6 +35,8 @@ Hallazgos para lo que viene:
 
 `gen` (`src/gen.rs`) traduce Thumb a C (spike): una función C por función, registros e indicadores como locales; 6782 de 7054 funciones, TinyCC compila los 14 MB en 1,4 s y `tools/spike_diff.py` no encuentra diferencias con Unicorn en 52 138 casos. Detalle y límites en `docs/generacion-c.md`. Falta: `switch`, saltos indirectos, ARM, `SWI`.
 
+`runtime/` es el runtime en C (bus, E/S, DMA, temporizadores, BIOS HLE, PPU, ventana SDL2). Para jugar: `tools/complete.sh` (halla los saltos dinámicos ejecutando) y `tools/build_play.sh <rom> <dir> <SDL2>` (genera, compila con TinyCC y enlaza SDL2); el resultado es `<dir>/play.exe <rom>`. Falta: sonido, guardado, estados guardados, el perfil `games/<id>.toml`.
+
 Siguiente: lo anterior, la generación de C y el runtime (memoria, E/S, PPU, BIOS).
 
 ## Reglas

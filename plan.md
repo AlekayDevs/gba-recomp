@@ -48,8 +48,8 @@ En orden de aparición para llegar al título y a la partida:
 - [ ] **PPU**: modos 0 a 2 (el juego usa sobre todo el 0), fondos con scroll, afines, sprites (normales, afines, doble tamaño), prioridades, mosaico, mezcla (alfa y brillo), ventanas, paletas, 15 bits de color. Primero por líneas, con efectos por línea (HBlank DMA/IRQ).
 - [ ] **Sonido**: el juego lleva su propio motor M4A (código en la ROM y en IWRAM) que escribe en los registros de DMA directo A/B y en los 4 canales PSG; el runtime solo debe emular el hardware (FIFO, temporizadores, PSG, mezcla a 32768 Hz / 48 kHz).
 - [ ] **Guardado**: EEPROM de 512 B o 8 KiB (se detecta por los accesos DMA); `.sav` junto al ejecutable (como `saves\` en alttp-recomp).
-- [ ] **Entrada**: teclado y mando (reutilizar el mapeo de snes-recomp, que ya trae mando, táctil y Android); `KEYINPUT`, `KEYCNT`.
-- [ ] **Ventana, vídeo y audio**: SDL2 como en snes-recomp; escalado entero, pantalla ancha después.
+- [x] **Entrada** (hecha en `runtime/play.c`: teclado y mando SDL2): teclado y mando (reutilizar el mapeo de snes-recomp, que ya trae mando, táctil y Android); `KEYINPUT`, `KEYCNT`.
+- [~] **Ventana, vídeo y audio**: ventana y vídeo hechos (`runtime/play.c`, `tools/build_play.sh`: SDL2, escalado entero, 59,7275 Hz, Tab = avance rápido, F11, F12 = captura); falta el audio y la pantalla ancha.
 - [ ] **Estados guardados** y rebobinado: definir el punto de reanudación (como `[resume]` en alttp) y qué estado se guarda (registros de la CPU, EWRAM, IWRAM, VRAM, paleta, OAM, E/S, temporizadores, DMA, estado del sonido).
 
 ## 4. Herramientas, pruebas y empaquetado
