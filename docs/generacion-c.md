@@ -48,3 +48,9 @@ TCC=<tcc> PY=<python con unicorn> tools/spike.sh <rom.gba> <directorio de trabaj
 - ARM: ejecución condicional, `LDM/STM`, `MSR/MRS`, multiplicaciones largas, `SWP`.
 - `SWI` a la BIOS (HLE), E/S y los efectos de memoria raros.
 - El código de IWRAM (*overlays*) con direcciones de RAM.
+
+## Estado actual de la prueba (ARM, `switch` e indirectos incluidos)
+
+Con las 7095 funciones (Thumb y ARM), 12 casos por función y semilla 9: 4323 funciones con algún caso válido (19 de las 38 ARM), 26 430 casos válidos, 0 diferencias. Se descartan 56 635 casos por fallo de acceso, 1462 por llamar a una función sin traducir, 598 que no terminan y 15 sin alinear.
+
+Dos trampas de Unicorn que ya conocemos: SP y LR están por modo, así que hay que escribir el CPSR antes que ellos, y un núcleo que ha fallado puede dar una referencia errónea aunque se arregle el modo; por eso `spike_diff.py` crea un núcleo nuevo tras cada fallo (`RENEW=none` lo evita, más rápido pero poco fiable).

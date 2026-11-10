@@ -57,6 +57,7 @@ IMAGES = [(b''.join(word().to_bytes(4, 'little') for _ in range(0x10000)), b''.j
 
 REGS = [UC_ARM_REG_R0 + i for i in range(13)]
 fails, ok, skipped, funcs_ok, arm_ok = [], 0, {}, 0, 0
+errs = {}
 entries = [(int(l.split()[0], 16), int(l.split()[1] == 't')) for l in open(list_path) if l.strip()]
 OVERLAYS = [tuple(int(x, 16) for x in a.split(':')) for a in sys.argv[6:]]  # RAM:ROM:LEN, code the game copies to RAM
 for entry, is_thumb in entries:
@@ -76,16 +77,18 @@ for entry, is_thumb in entries:
         # reference
         uc.mem_write(0x02000000, mem_e)
         uc.mem_write(0x03000000, mem_i)
+        # the mode first: after a fault the core can be in another mode, and SP/LR are banked per mode
+        uc.reg_write(UC_ARM_REG_CPSR, 0x1F | ((1 << 5) if is_thumb else 0) | sum(f << b for f, b in zip(flags, (31, 30, 29, 28))))
         for r, v in zip(REGS, regs): uc.reg_write(r, v)
         uc.reg_write(UC_ARM_REG_SP, sp)
         uc.reg_write(UC_ARM_REG_LR, RET | is_thumb)
-        uc.reg_write(UC_ARM_REG_CPSR, 0x1F | ((1 << 5) if is_thumb else 0) | sum(f << b for f, b in zip(flags, (31, 30, 29, 28))))
         try:
             uc.emu_start(entry | is_thumb, RET, count=20000)
-        except UcError:
+        except UcError as ex:
+            errs[str(ex)] = errs.get(str(ex), 0) + 1
             skipped['fault'] = skipped.get('fault', 0) + 1
             # after a fault the core can keep a stale exception/translation state that disturbs the next run: flush it
-            if os.environ.get('RENEW', 'new') == 'new': uc = new_uc()  # (RENEW=none: faster, but the cases after a fault can give a wrong reference)
+            if os.environ.get('RENEW', 'new') == 'new': uc = new_uc()  # (RENEW=none: faster, but a core that has faulted can give a wrong reference even with the mode set first)
             continue
         if uc.reg_read(UC_ARM_REG_PC) != RET:
             skipped['no end'] = skipped.get('no end', 0) + 1
@@ -127,6 +130,6 @@ for entry, is_thumb in entries:
         arm_ok += not is_thumb
 print('functions checked %d, with at least one valid case %d, valid cases %d, mismatching functions %d' % (len(entries), funcs_ok, ok, len(fails)))
 print('ARM functions with a valid case:', arm_ok, 'of', sum(1 for _, t in entries if not t))
-print('skipped cases:', skipped)
+print('skipped cases:', skipped, 'reference errors:', errs)
 for e, b in fails[:30]:
     print('  %08X: %s' % (e, '; '.join(b[:4])))
