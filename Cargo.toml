@@ -1,0 +1,16 @@
+[package]
+name = "gba-recomp"
+version = "0.1.0"
+edition = "2021"
+description = "Static recompiler for Game Boy Advance (ARM7TDMI) ROMs"
+publish = false
+
+[lib]
+name = "gba_recomp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gba-recomp"
+path = "src/main.rs"
+
+[dependencies]
