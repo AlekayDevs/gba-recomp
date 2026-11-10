@@ -24,15 +24,15 @@ Estado a 2026-11-10. El motor es propio y estático (Rust), hermano de `snes-rec
 
 ## 2. Generación de C
 
-Decisiones por tomar (hacer un *spike* con una función pequeña de punta a punta antes de decidir):
+Spike hecho para Thumb (`src/gen.rs`, `runtime/`, `tools/spike.sh`, detalle en `docs/generacion-c.md`): 6782 de 7054 funciones traducidas, 14 MB de C que TinyCC compila en 1,4 s, y 0 diferencias contra Unicorn en 52 138 casos (3100 funciones). Las decisiones de abajo quedan así:
 
-- [ ] **Forma del C**: una función C por función descubierta, con los registros ARM como variables locales (o una estructura `cpu`) y los indicadores N, Z, C, V explícitos y perezosos. Cuidar el rendimiento en Android (TinyCC en el móvil, como en alttp-recomp).
-- [ ] **ARM y Thumb**: traducir las dos familias; ejecución condicional de ARM; los cambios de modo con `BX` son llamadas o saltos entre funciones de estilo distinto.
+- [x] **Forma del C** (decidido: registros e indicadores locales, volcado a `Cpu` en llamadas y retornos, `goto` para saltos locales): una función C por función descubierta, con los registros ARM como variables locales (o una estructura `cpu`) y los indicadores N, Z, C, V explícitos y perezosos. Cuidar el rendimiento en Android (TinyCC en el móvil, como en alttp-recomp).
+- [ ] **ARM y Thumb** (Thumb hecho en el spike, falta ARM): ejecución condicional de ARM; los cambios de modo con `BX` son llamadas o saltos entre funciones de estilo distinto.
 - [ ] **Saltos indirectos**: despacho por dirección contra una tabla de funciones y bloques descubiertos, con un **respaldo** (intérprete ARM/Thumb) si la dirección no está, como hace `mstan/gbarecomp`; contar y registrar los fallos para ir ampliando el análisis.
 - [ ] **Memoria**: los accesos a ROM, EWRAM, IWRAM, E/S, paleta, VRAM y OAM pasan por funciones de lectura/escritura del runtime (los de E/S y VRAM tienen efectos); los de EWRAM/IWRAM conviene inlinearlos.
 - [ ] **Instrucciones con efectos de memoria raros**: `SWP`, `LDM/STM` con `^`, `LDR` sin alinear (rotación), `STR` de PC, accesos de byte a VRAM (se ignoran en parte), `MSR`/`MRS` y los cambios de modo del procesador (IRQ, SVC, SYS: bancos de registros).
 - [ ] **Tiempo**: la GBA no tiene un contador de ciclos observable, pero el juego depende de VBlank/HBlank, temporizadores y DMA; decidir si se cuentan los ciclos (aproximados) o se avanza por eventos.
-- [ ] **Una prueba contra el original**: ejecutar el mismo tramo en un emulador de referencia (mGBA/VBA) y comparar registros y memoria en puntos fijos; el equivalente del `check` de alttp-recomp.
+- [x] **Una prueba contra el original** (hecha con Unicorn, `tools/spike_diff.py`, no mGBA): compara registros, N Z C V y EWRAM/IWRAM tras ejecutar cada función. Límite: Unicorn no rota los accesos sin alinear. Falta una prueba contra un emulador de GBA completo (mGBA) para E/S, BIOS y temporización.
 
 ## 3. Runtime
 

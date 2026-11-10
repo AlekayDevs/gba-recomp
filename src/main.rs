@@ -5,7 +5,7 @@ use gba_recomp::{arm, discover::{arm_pointers, discover, discover_with, thumb_po
 fn usage() -> ! {
     eprintln!(
         "gba-recomp <order>\n  info <rom.gba>                      header, checks and CRC32\n  disasm <rom.gba> <addr> [n] [thumb]  disassemble n instructions (default 32) at a bus address (hex)\n  map <rom.gba> [--pointers] [--overlay ...]  what is code, pools, tables and what is left unclaimed
-  trace <rom.gba> [entry] [--pointers] [--overlay RAM:ROM:LEN]... follow the flow of control from the entry point and summarize (--pointers: also from the Thumb function pointers in the data)"
+  gen <rom.gba> <out.c> [--pointers] [--overlay ...]  C for the Thumb functions the spike can translate\n  trace <rom.gba> [entry] [--pointers] [--overlay RAM:ROM:LEN]... follow the flow of control from the entry point and summarize (--pointers: also from the Thumb function pointers in the data)"
     );
     std::process::exit(2)
 }
@@ -69,7 +69,7 @@ fn main() {
                 addr += size;
             }
         }
-        "trace" | "map" => {
+        "trace" | "map" | "gen" => {
             let entry = args.get(2).filter(|s| !s.starts_with('-') && !s.contains(':')).map(|s| parse_addr(s)).or(rom.header().entry_target).unwrap_or(ROM_BASE);
             let d = if args.iter().any(|a| a == "--pointers") {
                 let ptrs = thumb_pointers(&rom);
@@ -82,6 +82,48 @@ fn main() {
             } else {
                 discover(&rom, entry)
             };
+            if cmd == "gen" {
+                // gen <rom> <out.c> [--pointers] [--overlay ...]: every Thumb function of the ROM that the spike can translate
+                let out = args.get(2).filter(|s| !s.starts_with('-')).cloned().unwrap_or_else(|| usage());
+                let mut text = String::from("#include \"gba_rt.h\"\n\n");
+                let mut why: std::collections::BTreeMap<String, usize> = Default::default();
+                let mut calls = std::collections::BTreeSet::new();
+                let funcs: Vec<u32> = d.functions.iter().copied().filter(|a| (0x0800_0000..0x0E00_0000).contains(a) && d.code.get(a).is_some_and(|c| c.0)).collect();
+                let mut bodies = Vec::new();
+                for &f in &funcs {
+                    match gba_recomp::gen::function(&rom, &d, f, &mut calls) {
+                        Ok(b) => bodies.push((f, b)),
+                        Err(e) => {
+                            let k = e.split(" at 0x").next().unwrap_or(&e).to_string();
+                            *why.entry(k.split_whitespace().take(1).collect::<Vec<_>>().join(" ")).or_insert(0) += 1;
+                        }
+                    }
+                }
+                let ok: std::collections::BTreeSet<u32> = bodies.iter().map(|b| b.0).collect();
+                for (f, _) in &bodies {
+                    text.push_str(&format!("void {}(Cpu *c);\n", gba_recomp::gen::name(*f)));
+                }
+                // the functions that are called but were not translated get a stub that the test can detect
+                for c in calls.iter().filter(|c| !ok.contains(c)) {
+                    text.push_str(&format!("void {}(Cpu *c) {{ rt_untranslated(c, 0x{c:08X}u); }}\n", gba_recomp::gen::name(*c)));
+                }
+                text.push('\n');
+                for (_, b) in &bodies {
+                    text.push_str(b);
+                    text.push('\n');
+                }
+                std::fs::write(&out, text).unwrap();
+                let list: String = bodies.iter().map(|b| format!("{:08X}\n", b.0)).collect();
+                std::fs::write(format!("{out}.list"), list).unwrap();
+                let missing = calls.iter().filter(|c| !ok.contains(c)).count();
+                println!("Thumb functions {}, translated {}, not translated {} (callees not translated: {missing})", funcs.len(), bodies.len(), funcs.len() - bodies.len());
+                let mut w: Vec<_> = why.into_iter().collect();
+                w.sort_by_key(|x| std::cmp::Reverse(x.1));
+                for (k, n) in w.iter().take(25) {
+                    println!("  {n:>5}  {k}");
+                }
+                return;
+            }
             if cmd == "map" {
                 let m = Map::build(&rom, &d);
                 let total = rom.data.len();
