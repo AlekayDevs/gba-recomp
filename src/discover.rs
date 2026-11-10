@@ -26,6 +26,8 @@ pub struct Discovery {
     pub rejected: BTreeSet<u32>,
     /// Recognised `switch` tables: address of the indirect jump -> targets.
     pub tables: BTreeMap<u32, Vec<u32>>,
+    /// Where the `switch` tables live: base address -> number of entries.
+    pub table_data: BTreeMap<u32, u32>,
 }
 
 /// If `insn` is an ARM `LDR Rd, [PC, #±imm]`, the register and the address of the literal.
@@ -117,6 +119,7 @@ impl Discovery {
             *self.swis.entry(k).or_insert(0) += v;
         }
         self.tables.extend(o.tables);
+        self.table_data.extend(o.table_data);
     }
 }
 
@@ -222,7 +225,8 @@ fn walk(rom: &Rom, d: &mut Discovery, base: Option<&Discovery>, mut work: VecDeq
                             // `CMP Rx, #N` ... `LDR Rt, =table` ... `LDR Rx, [Rx]` ... `MOV PC, Rx`: a table of N+1 targets
                             let table = if thumb { switch_table(rom, pc) } else { None };
                             match table {
-                                Some(targets) => {
+                                Some((base, targets)) => {
+                                    d.table_data.insert(base, targets.len() as u32);
                                     for &t in &targets {
                                         push(d, t & !1, true, false);
                                     }
@@ -273,7 +277,7 @@ fn writes(text: &str, r: u32) -> bool {
 
 /// Looks back in the code for the compare that bounds the index (`CMP Rx, #N`) and the literal that holds the base of the table,
 /// reading the halfwords before the jump (the block may have been entered after the compare, at the `BLS` target).
-fn switch_table(rom: &Rom, pc: u32) -> Option<Vec<u32>> {
+fn switch_table(rom: &Rom, pc: u32) -> Option<(u32, Vec<u32>)> {
     let mut n = None;
     let mut base = None;
     for i in 1..=12u32 {
@@ -300,7 +304,7 @@ fn switch_table(rom: &Rom, pc: u32) -> Option<Vec<u32>> {
         }
         out.push(t);
     }
-    Some(out)
+    Some((base, out))
 }
 
 /// The address of ROM code seen through the mirrors (`$0A000000`, `$0C000000`) as `$08000000`.

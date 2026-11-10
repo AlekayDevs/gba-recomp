@@ -20,7 +20,7 @@ Estado a 2026-11-10. El motor es propio y estático (Rust), hermano de `snes-rec
 - [ ] **Más *overlays* automáticos**: hoy se pasan a mano (`--overlay`). Reconocer las rutinas de copia del arranque (`CpuSet`, `CpuFastSet`, DMA y bucles propios) y deducir origen, destino y tamaño; avisar si hay código que se ejecuta desde EWRAM/IWRAM sin overlay (el análisis lo ve como «fuera de la ROM»).
 - [ ] **Código ejecutado desde RAM generado en ejecución** o que se modifica: confirmar que *Minish Cap* no lo hace (parece que solo copia bloques fijos).
 - [ ] **Perfil del juego**: que el motor lea `games\<id>.toml` (hoy hay un borrador con los dos *overlays*): entradas, overlays, tablas de saltos conocidas, ganchos, nombres de símbolos propios.
-- [ ] **Mapa de la ROM** (`map`): código, datos, tablas, gráficos comprimidos; para comprobar la cobertura y no dejar huecos.
+- [x] **Mapa de la ROM** (`map`, `src/map.rs`): clasifica cada byte (cabecera, ARM, Thumb, código de *overlay*, pools de literales, tablas de `switch`, sin reclamar) y lista los huecos. Con *Minish Cap*: el código ocupa `0x08000000..0x080B197A` (727 KB): 76,7 % código, 7,0 % pools y tablas, 108 KB sin reclamar con contenido en 657 tramos, sobre todo cuatro bloques de datos (`0x08008B5C` 55 KB, `0x080046A4` 14 KB, `0x080029B4`, `0x0800137C`). Después de `0x080B2A70` hay 16 MB de datos (gráficos, mapas, texto). Falta distinguir tipos de datos dentro de los huecos y marcar los pools que la ruta lineal no debe tratar como código.
 
 ## 2. Generación de C
 

@@ -1,9 +1,11 @@
 use gba_recomp::rom::{crc32, Overlay, Rom, ROM_BASE};
+use gba_recomp::map::{Kind, Map};
 use gba_recomp::{arm, discover::{arm_pointers, discover, discover_with, thumb_pointers}, thumb};
 
 fn usage() -> ! {
     eprintln!(
-        "gba-recomp <order>\n  info <rom.gba>                      header, checks and CRC32\n  disasm <rom.gba> <addr> [n] [thumb]  disassemble n instructions (default 32) at a bus address (hex)\n  trace <rom.gba> [entry] [--pointers] [--overlay RAM:ROM:LEN]... follow the flow of control from the entry point and summarize (--pointers: also from the Thumb function pointers in the data)"
+        "gba-recomp <order>\n  info <rom.gba>                      header, checks and CRC32\n  disasm <rom.gba> <addr> [n] [thumb]  disassemble n instructions (default 32) at a bus address (hex)\n  map <rom.gba> [--pointers] [--overlay ...]  what is code, pools, tables and what is left unclaimed
+  trace <rom.gba> [entry] [--pointers] [--overlay RAM:ROM:LEN]... follow the flow of control from the entry point and summarize (--pointers: also from the Thumb function pointers in the data)"
     );
     std::process::exit(2)
 }
@@ -67,7 +69,7 @@ fn main() {
                 addr += size;
             }
         }
-        "trace" => {
+        "trace" | "map" => {
             let entry = args.get(2).filter(|s| !s.starts_with('-') && !s.contains(':')).map(|s| parse_addr(s)).or(rom.header().entry_target).unwrap_or(ROM_BASE);
             let d = if args.iter().any(|a| a == "--pointers") {
                 let ptrs = thumb_pointers(&rom);
@@ -80,6 +82,46 @@ fn main() {
             } else {
                 discover(&rom, entry)
             };
+            if cmd == "map" {
+                let m = Map::build(&rom, &d);
+                let total = rom.data.len();
+                let pct = |n: usize| 100.0 * n as f64 / total as f64;
+                println!("ROM {total} bytes");
+                for (name, k) in [("header", Kind::Header), ("ARM code", Kind::Arm), ("Thumb code", Kind::Thumb), ("overlay code", Kind::OverlayCode), ("literal pools", Kind::Pool), ("switch tables", Kind::Table), ("unclaimed", Kind::Unknown)] {
+                    let n = m.count(k);
+                    println!("  {name:<14}{n:>9} bytes  {:5.2}%", pct(n));
+                }
+                let gaps = m.gaps(&rom);
+                let (pad, data): (Vec<_>, Vec<_>) = gaps.iter().partition(|g| g.fill.is_some());
+                println!("unclaimed runs {} ({} of padding/fill, {} bytes), {} with content ({} bytes)", gaps.len(), pad.len(), pad.iter().map(|g| g.len as usize).sum::<usize>(), data.len(), data.iter().map(|g| g.len as usize).sum::<usize>());
+                let mut big = data.clone();
+                big.sort_by_key(|g| std::cmp::Reverse(g.len));
+                println!("largest runs with content:");
+                for g in big.iter().take(25) {
+                    println!("  0x{:08X}  {:>8} bytes", g.start, g.len);
+                }
+                // the code area: up to the last byte claimed as code
+                let last = m.kinds.iter().rposition(|k| matches!(k, Kind::Arm | Kind::Thumb)).unwrap_or(0);
+                let span = last + 1;
+                let in_span: Vec<_> = data.iter().filter(|g| ((g.start - ROM_BASE) as usize) < span).collect();
+                println!("code area 0x{:08X}..0x{:08X} ({span} bytes): code {:.2}%, pools+tables {:.2}%, unclaimed with content {} bytes in {} runs",
+                    ROM_BASE, ROM_BASE + span as u32,
+                    100.0 * m.kinds[..span].iter().filter(|k| matches!(k, Kind::Arm | Kind::Thumb | Kind::OverlayCode)).count() as f64 / span as f64,
+                    100.0 * m.kinds[..span].iter().filter(|k| matches!(k, Kind::Pool | Kind::Table)).count() as f64 / span as f64,
+                    in_span.iter().map(|g| g.len as usize).sum::<usize>(), in_span.len());
+                let mut inb = in_span.clone();
+                inb.sort_by_key(|g| std::cmp::Reverse(g.len));
+                for g in inb.iter().take(15) {
+                    println!("  in code area 0x{:08X}  {:>8} bytes", g.start, g.len);
+                }
+                // histogram of sizes
+                let mut h = [0usize; 6];
+                for g in &data {
+                    h[match g.len { 0..=7 => 0, 8..=63 => 1, 64..=511 => 2, 512..=4095 => 3, 4096..=65535 => 4, _ => 5 }] += g.len as usize;
+                }
+                println!("bytes with content by run size: <8 {}, <64 {}, <512 {}, <4K {}, <64K {}, bigger {}", h[0], h[1], h[2], h[3], h[4], h[5]);
+                return;
+            }
             let arm_n = d.code.values().filter(|(t, _)| !*t).count();
             let thumb_n = d.code.values().filter(|(t, _)| *t).count();
             let bytes: u32 = d.code.values().map(|(_, s)| *s).sum();

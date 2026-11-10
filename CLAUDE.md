@@ -10,6 +10,7 @@ cargo test                                            # decodificadores ARM y Th
 ./target/release/gba-recomp info <rom.gba>            # cabecera, comprobaciones, CRC32
 ./target/release/gba-recomp disasm <rom.gba> <dir> [n] [thumb]
 ./target/release/gba-recomp trace <rom.gba> [entrada] # descubrimiento de código desde la entrada
+./target/release/gba-recomp map <rom.gba> [--pointers] [--overlay ..] # mapa: código, pools, tablas y huecos
 ```
 
 ## Estado
@@ -28,6 +29,8 @@ Hallazgos para lo que viene:
 - Pendiente del analizador: punteros a funciones ARM (pares), tablas de saltos de `switch`, validar los candidatos (decodificar un tramo entero válido) y desambiguar código y datos.
 
 `discover_with` valida los candidatos de los datos (Thumb y punteros ARM a `STMFD ..,LR`): cada uno se recorre aparte y se descarta si llega a una indefinida o sale de la ROM. Con *Minish Cap* y `--pointers`: 258 976 instrucciones, 7095 funciones, 0 indefinidas, 7 candidatos descartados.
+
+`map` (`src/map.rs`) da la cobertura: en el área de código de *Minish Cap* (`0x08000000..0x080B197A`, 727 KB) el 76,7 % es código, el 7,0 % pools y tablas, y quedan 108 KB de datos sin clasificar; a partir de `0x080B2A70` hay 16 MB de datos.
 
 Siguiente: lo anterior, la generación de C y el runtime (memoria, E/S, PPU, BIOS).
 
