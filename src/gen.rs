@@ -25,6 +25,9 @@ pub fn name(addr: u32) -> String {
 /// Generates the C function at `entry`, or says why it cannot (an instruction or a jump the spike does not translate).
 /// `calls` receives the functions it calls.
 pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>) -> Result<String, String> {
+    if d.code.get(&entry).is_some_and(|c| !c.0) {
+        return crate::gen_arm::function(rom, d, entry, calls);
+    }
     // 1. the instructions of the function: follow the flow, stopping at other functions
     let mut insns: BTreeMap<u32, (u16, u16)> = BTreeMap::new();
     let mut targets: BTreeSet<u32> = BTreeSet::new();
@@ -34,10 +37,12 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
             if insns.contains_key(&pc) {
                 break;
             }
-            if pc != entry && d.functions.contains(&pc) {
-                break; // falls into another function: handled as a tail call when emitting
-            }
             let h = rom.read16(pc).ok_or("outside the ROM")?;
+            // falls into another function: handled as a tail call when emitting. Except a `BX Rm` shared with that function (`POP {Rm}` right before
+            // it is this function's return): it is part of this one too
+            if pc != entry && d.functions.contains(&pc) && h & 0xFF87 != 0x4700 {
+                break;
+            }
             let next = rom.read16(pc + 2).unwrap_or(0);
             let i = thumb::decode(h, next, pc);
             insns.insert(pc, (h, next));
@@ -53,8 +58,23 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
                     break;
                 }
                 Flow::Indirect { ret: true, .. } => break,
-                Flow::Indirect { .. } => return Err(format!("indirect jump at 0x{pc:08X}")),
-                Flow::Swi(n) => return Err(format!("SWI {n} at 0x{pc:08X}")),
+                Flow::Indirect { .. } => {
+                    // `switch` table: every target is a block of this function (or a tail call); a literal `BX`: one target
+                    if let Some(t) = d.tables.get(&pc) {
+                        for &t in t {
+                            targets.insert(t & !1);
+                            work.push(t & !1);
+                        }
+                    } else if let Some(&t) = d.resolved.get(&pc) {
+                        // ARM targets are functions of their own: they become tail calls
+                        if t & 1 != 0 {
+                            targets.insert(t & !1);
+                            work.push(t & !1);
+                        }
+                    }
+                    break;
+                }
+                Flow::Swi(_) => {}
                 _ => return Err(format!("{} at 0x{pc:08X}", i.text)),
             }
             pc += i.size;
@@ -70,6 +90,35 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
         targets.insert(entry);
         writeln!(o, "    goto L_{entry:08X};").unwrap();
     }
+    let indirect = |o: &mut String, pc: u32, rs: u32, calls: &mut BTreeSet<u32>| -> Result<(), String> {
+        let tgt = |o: &mut String, t: u32, calls: &mut BTreeSet<u32>, indent: &str| {
+            if t != entry && d.functions.contains(&t) {
+                calls.insert(t);
+                writeln!(o, "{indent}STORE(); {}(c); return;", name(t)).unwrap();
+            } else {
+                writeln!(o, "{indent}goto L_{t:08X};").unwrap();
+            }
+        };
+        writeln!(o, "    // {pc:08X} indirect jump through {}", r(rs)).unwrap();
+        if let Some(t) = d.tables.get(&pc) {
+            writeln!(o, "    switch ({} & ~1u) {{", r(rs)).unwrap();
+            let mut seen = BTreeSet::new();
+            for &t in t {
+                if seen.insert(t & !1) {
+                    writeln!(o, "    case 0x{:08X}u:", t & !1).unwrap();
+                    tgt(o, t & !1, calls, "        ");
+                }
+            }
+            writeln!(o, "    default: STORE(); rt_site = 0x{pc:08X}u; rt_dispatch(c, {}); return;
+    }}", r(rs)).unwrap();
+        } else if let Some(&t) = d.resolved.get(&pc) {
+            tgt(o, t & !1, calls, "    ");
+        } else {
+            // the target is only known at run time: look it up among the translated functions (a tail call)
+            writeln!(o, "    STORE(); rt_site = 0x{pc:08X}u; rt_dispatch(c, {}); return;", r(rs)).unwrap();
+        }
+        Ok(())
+    };
     for (&pc, &(h, next)) in &insns {
         if targets.contains(&pc) {
             writeln!(o, "L_{pc:08X}:;").unwrap();
@@ -81,6 +130,8 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
             if t != entry && d.functions.contains(&t) {
                 calls.insert(t);
                 writeln!(o, "{indent}STORE(); {}(c); return;", name(t)).unwrap();
+            } else if t <= pc {
+                writeln!(o, "{indent}YIELD(); goto L_{t:08X};").unwrap();
             } else {
                 writeln!(o, "{indent}goto L_{t:08X};").unwrap();
             }
@@ -141,15 +192,21 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
                     let val = |x: u32| if x == 15 { format!("0x{:08X}u", pc + 4) } else { r(x) };
                     match (h >> 8) & 3 {
                         2 if rd == 15 && rs == 14 => line(&mut o, "STORE(); return;".into()),
-                        0 | 2 if rd == 15 => return Err(format!("write to PC at 0x{pc:08X}")),
+                        2 if rd == 15 => indirect(&mut o, pc, rs, calls)?,
+                        0 if rd == 15 => return Err(format!("write to PC at 0x{pc:08X}")),
                         0 => line(&mut o, format!("{} += {};", r(rd), val(rs))),
                         1 => line(&mut o, format!("CMP({}, {});", val(rd), val(rs))),
                         2 => line(&mut o, format!("{} = {};", r(rd), val(rs))),
                         _ => {
-                            if rs != 14 {
-                                return Err(format!("bx {} at 0x{pc:08X}", r(rs)));
+                            // `POP {Rm}` then `BX Rm` is a return (ARMv4T cannot pop into PC and switch state)
+                            let popped = rs < 8 && rom.read16(pc.wrapping_sub(2)).is_some_and(|p| p & 0xFF00 == 0xBC00 && p & (1 << rs) != 0 && insns.contains_key(&(pc - 2)));
+                            // `MOV Rm, LR` somewhere in the function and `BX Rm`: the same, with the return address kept in a high register
+                            let saved_lr = insns.values().any(|&(hh, _)| hh as u32 == (0x4670 | ((rs >> 3) << 7) | (rs & 7)));
+                            if rs == 14 || popped || saved_lr {
+                                line(&mut o, "STORE(); return;".into());
+                            } else {
+                                indirect(&mut o, pc, rs, calls)?;
                             }
-                            line(&mut o, "STORE(); return;".into());
                         }
                     }
                 }
@@ -253,10 +310,15 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
                 line(&mut o, s);
             }
             0b11010 | 0b11011 => {
+                if let Flow::Swi(n) = i.flow {
+                    line(&mut o, format!("STORE(); rt_swi(c, {n}); RELOAD();"));
+                    // fallthrough handled below
+                } else {
                 let Flow::CondBranch(t) = i.flow else { return Err(format!("{} at 0x{pc:08X}", i.text)) };
                 writeln!(o, "    if ({}) {{ // {:08X} {}", cond((h >> 8) & 0xF), pc, i.text).unwrap();
                 jump(&mut o, t, calls, "        ");
                 writeln!(o, "    }}").unwrap();
+                }
             }
             0b11100 => {
                 let Flow::Branch(t) = i.flow else { unreachable!() };
@@ -272,7 +334,7 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
         }
         // falls through to something we did not follow: another function (tail call) or nothing we know
         let end = pc + i.size;
-        if matches!(i.flow, Flow::Next | Flow::Call(_) | Flow::CondBranch(_)) && !insns.contains_key(&end) {
+        if matches!(i.flow, Flow::Next | Flow::Call(_) | Flow::CondBranch(_) | Flow::Swi(_)) && !insns.contains_key(&end) {
             if d.functions.contains(&end) && end != entry {
                 calls.insert(end);
                 writeln!(o, "    STORE(); {}(c); return;", name(end)).unwrap();

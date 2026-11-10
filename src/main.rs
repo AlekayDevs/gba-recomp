@@ -1,11 +1,11 @@
 use gba_recomp::rom::{crc32, Overlay, Rom, ROM_BASE};
 use gba_recomp::map::{Kind, Map};
-use gba_recomp::{arm, discover::{arm_pointers, discover, discover_with, thumb_pointers}, thumb};
+use gba_recomp::{arm, discover::{arm_pointers, discover_with, thumb_pointers}, thumb};
 
 fn usage() -> ! {
     eprintln!(
         "gba-recomp <order>\n  info <rom.gba>                      header, checks and CRC32\n  disasm <rom.gba> <addr> [n] [thumb]  disassemble n instructions (default 32) at a bus address (hex)\n  map <rom.gba> [--pointers] [--overlay ...]  what is code, pools, tables and what is left unclaimed
-  gen <rom.gba> <out.c> [--pointers] [--overlay ...]  C for the Thumb functions the spike can translate\n  trace <rom.gba> [entry] [--pointers] [--overlay RAM:ROM:LEN]... follow the flow of control from the entry point and summarize (--pointers: also from the Thumb function pointers in the data)"
+  gen <rom.gba> <out.c> [--pointers] [--overlay ...]  C for the Thumb functions the spike can translate\n  trace <rom.gba> [entry] [--root ADDR[:t]]... [--pointers] [--overlay RAM:ROM:LEN]... follow the flow of control from the entry point and summarize (--pointers: also from the Thumb function pointers in the data)"
     );
     std::process::exit(2)
 }
@@ -33,6 +33,26 @@ fn main() {
                 usage()
             }
             rom.overlays.push(Overlay { ram: v[0], rom: v[1], len: v[2] });
+        }
+    }
+    // --root ADDR[:t] (hex, repeatable): an entry point the flow cannot reach (an interrupt handler stored in RAM, a callback table...)
+    let mut extra_roots: Vec<(u32, bool)> = Vec::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--root" {
+            let v = it.next().unwrap_or_else(|| usage());
+            let (addr, t) = match v.split_once(':') { Some((a, k)) => (a, k == "t"), None => (v.as_str(), false) };
+            extra_roots.push((parse_addr(addr), t));
+        }
+        // --roots-file FILE: one address per line (hex); an odd one is Thumb. Written by the run-and-complete loop (tools/complete.sh)
+        if a == "--roots-file" {
+            let f = it.next().unwrap_or_else(|| usage());
+            for l in std::fs::read_to_string(f).unwrap_or_default().lines() {
+                let l = l.trim();
+                if l.is_empty() || l.starts_with('#') { continue; }
+                let v = parse_addr(l);
+                extra_roots.push((v & !1, v & 1 == 1));
+            }
         }
     }
     match cmd.as_str() {
@@ -78,9 +98,9 @@ fn main() {
                 let mut cands: Vec<(u32, bool)> = ptrs.into_iter().map(|a| (a, true)).collect();
                 cands.extend(aptrs.into_iter().map(|a| (a, false)));
                 cands.sort();
-                discover_with(&rom, &[(entry, false)], &cands)
+                { let mut roots = vec![(entry, false)]; roots.extend(extra_roots.iter().copied()); discover_with(&rom, &roots, &cands) }
             } else {
-                discover(&rom, entry)
+                { let mut roots = vec![(entry, false)]; roots.extend(extra_roots.iter().copied()); discover_with(&rom, &roots, &[]) }
             };
             if cmd == "gen" {
                 // gen <rom> <out.c> [--pointers] [--overlay ...]: every Thumb function of the ROM that the spike can translate
@@ -88,13 +108,14 @@ fn main() {
                 let mut text = String::from("#include \"gba_rt.h\"\n\n");
                 let mut why: std::collections::BTreeMap<String, usize> = Default::default();
                 let mut calls = std::collections::BTreeSet::new();
-                let funcs: Vec<u32> = d.functions.iter().copied().filter(|a| (0x0800_0000..0x0E00_0000).contains(a) && d.code.get(a).is_some_and(|c| c.0)).collect();
+                let funcs: Vec<u32> = d.functions.iter().copied().filter(|a| d.code.contains_key(a)).collect();
                 let mut bodies = Vec::new();
                 for &f in &funcs {
                     match gba_recomp::gen::function(&rom, &d, f, &mut calls) {
                         Ok(b) => bodies.push((f, b)),
                         Err(e) => {
                             let k = e.split(" at 0x").next().unwrap_or(&e).to_string();
+                            if std::env::var("GEN_WHY").is_ok() { eprintln!("  {f:08X}: {e}"); }
                             *why.entry(k.split_whitespace().take(1).collect::<Vec<_>>().join(" ")).or_insert(0) += 1;
                         }
                     }
@@ -112,15 +133,57 @@ fn main() {
                     text.push_str(b);
                     text.push('\n');
                 }
+                // run-time dispatch: a binary search over the translated functions (sorted by address)
+                text.push_str(&format!("static const struct {{ u32 a; void (*f)(Cpu *); }} rt_table[{}] = {{
+", bodies.len().max(1)));
+                for (f, _) in &bodies {
+                    text.push_str(&format!("    {{ 0x{f:08X}u, {} }},
+", gba_recomp::gen::name(*f)));
+                }
+                text.push_str("};
+void rt_dispatch(Cpu *c, u32 target) {
+    u32 t = (target & 1) ? target & ~1u : target & ~3u, lo = 0, hi = ");
+                text.push_str(&format!("{};
+", bodies.len()));
+                text.push_str("    while (lo < hi) {
+        u32 m = (lo + hi) / 2;
+        if (rt_table[m].a == t) { rt_table[m].f(c); return; }
+        if (rt_table[m].a < t) lo = m + 1; else hi = m;
+    }
+    rt_missing(c, target);
+}
+");
+                text.push_str(&format!("void rt_entry(Cpu *c) {{ {}(c); }}
+", gba_recomp::gen::name(entry)));
                 std::fs::write(&out, text).unwrap();
-                let list: String = bodies.iter().map(|b| format!("{:08X}\n", b.0)).collect();
+                let list: String = bodies.iter().map(|b| format!("{:08X} {}
+", b.0, if d.code[&b.0].0 { "t" } else { "a" })).collect();
                 std::fs::write(format!("{out}.list"), list).unwrap();
                 let missing = calls.iter().filter(|c| !ok.contains(c)).count();
-                println!("Thumb functions {}, translated {}, not translated {} (callees not translated: {missing})", funcs.len(), bodies.len(), funcs.len() - bodies.len());
+                println!("functions {}, translated {}, not translated {} (callees not translated: {missing})", funcs.len(), bodies.len(), funcs.len() - bodies.len());
                 let mut w: Vec<_> = why.into_iter().collect();
                 w.sort_by_key(|x| std::cmp::Reverse(x.1));
                 for (k, n) in w.iter().take(25) {
                     println!("  {n:>5}  {k}");
+                }
+                return;
+            }
+            if cmd == "trace" && args.iter().any(|a| a == "--arm") {
+                // the ARM instructions found, by mnemonic, and where they are
+                let mut h: std::collections::BTreeMap<String, (usize, u32)> = Default::default();
+                for (&a, &(t, _)) in &d.code {
+                    if !t {
+                        let w = rom.read32(a).unwrap_or(0);
+                        let text = arm::decode(w, a).text;
+                        let m: String = text.split_whitespace().next().unwrap_or("").to_string();
+                        let e = h.entry(m).or_insert((0, a));
+                        e.0 += 1;
+                    }
+                }
+                let mut v: Vec<_> = h.into_iter().collect();
+                v.sort_by_key(|x| std::cmp::Reverse(x.1 .0));
+                for (m, (n, a)) in v {
+                    println!("  {n:>5}  {m:<10} first at 0x{a:08X}");
                 }
                 return;
             }

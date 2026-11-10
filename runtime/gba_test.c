@@ -5,6 +5,7 @@ uint8_t *rt_rom;
 u32 rt_rom_len;
 uint8_t rt_ewram[0x40000], rt_iwram[0x8000];
 int rt_fault;
+u32 rt_fault_addr; /* the first address that faulted (for the test's report) */
 int rt_unaligned; /* a halfword/word access that was not aligned: the ARM7TDMI rotates, newer cores do not, so the reference test skips it */
 
 static uint8_t *at(u32 a, u32 n) {
@@ -16,6 +17,7 @@ static uint8_t *at(u32 a, u32 n) {
     } else if (a >= 0x03000000u && a < 0x03008000u) {
         return rt_iwram + (a - 0x03000000u);
     }
+    if (!rt_fault) rt_fault_addr = a;
     rt_fault = 1;
     return 0;
 }
@@ -29,6 +31,7 @@ u32 rd16(u32 a) {
     return (a & 1) ? (v >> 8) | (v << 24) : v;
 }
 u32 rdsh(u32 a) {
+    if (a & 1) rt_unaligned = 1;
     if (a & 1) return (u32)(s32)(int8_t)rd8(a);
     return (u32)(s32)(int16_t)rd16(a);
 }
@@ -57,3 +60,9 @@ void wr32(u32 a, u32 v) {
 
 u32 rt_untranslated_addr;
 void rt_untranslated(Cpu *c, u32 addr) { (void)c; rt_untranslated_addr = addr; rt_fault = 1; }
+void rt_swi(Cpu *c, u32 n) { (void)c; rt_untranslated_addr = 0xB1050000u | n; rt_fault = 1; }
+void rt_missing(Cpu *c, u32 target) { (void)c; rt_untranslated_addr = target | 1; rt_fault = 1; }
+u32 rdsb(u32 a) { return (u32)(s32)(int8_t)rd8(a); }
+u32 rt_site;
+int rt_budget = 0x7FFFFFFF;
+void rt_yield(Cpu *c) { (void)c; rt_budget = 0x7FFFFFFF; }

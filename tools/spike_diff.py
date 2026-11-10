@@ -13,7 +13,8 @@ from unicorn.arm_const import *
 
 rom_path, dll_path, list_path = sys.argv[1:4]
 cases = int(sys.argv[4]) if len(sys.argv) > 4 else 8
-rng = random.Random(int(sys.argv[5]) if len(sys.argv) > 5 else 1)
+seed = int(sys.argv[5]) if len(sys.argv) > 5 else 1
+rng = random.Random(seed)
 rom = open(rom_path, 'rb').read()
 rom = rom + bytes(0x1000000 - len(rom)) if len(rom) < 0x1000000 else rom
 dll = ctypes.CDLL(dll_path)
@@ -27,7 +28,7 @@ unal = ctypes.c_int.in_dll(dll, 'rt_unaligned')
 untr = ctypes.c_uint32.in_dll(dll, 'rt_untranslated_addr')
 
 class Cpu(ctypes.Structure):
-    _fields_ = [('r', ctypes.c_uint32 * 16), ('n', ctypes.c_uint32), ('z', ctypes.c_uint32), ('c', ctypes.c_uint32), ('v', ctypes.c_uint32)]
+    _fields_ = [('r', ctypes.c_uint32 * 16), ('n', ctypes.c_uint32), ('z', ctypes.c_uint32), ('c', ctypes.c_uint32), ('v', ctypes.c_uint32), ('cpsr_c', ctypes.c_uint32), ('spsr', ctypes.c_uint32 * 32), ('bank_sp', ctypes.c_uint32 * 32), ('bank_lr', ctypes.c_uint32 * 32)]
 
 uc = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
 from unicorn import UC_PROT_READ, UC_PROT_EXEC
@@ -49,25 +50,31 @@ def word():
 IMAGES = [(b''.join(word().to_bytes(4, 'little') for _ in range(0x10000)), b''.join(word().to_bytes(4, 'little') for _ in range(0x2000))) for _ in range(6)]
 
 REGS = [UC_ARM_REG_R0 + i for i in range(13)]
-fails, ok, skipped, funcs_ok = [], 0, {}, 0
-entries = [int(x, 16) for x in open(list_path).read().split()]
-for entry in entries:
+fails, ok, skipped, funcs_ok, arm_ok = [], 0, {}, 0, 0
+entries = [(int(l.split()[0], 16), int(l.split()[1] == 't')) for l in open(list_path) if l.strip()]
+OVERLAYS = [tuple(int(x, 16) for x in a.split(':')) for a in sys.argv[6:]]  # RAM:ROM:LEN, code the game copies to RAM
+for entry, is_thumb in entries:
     good = 0
-    for _ in range(cases):
+    for k in range(cases):
+        rng.seed('%d:%08X:%d' % (seed, entry, k))  # a case depends only on (seed, function, number): a single function can be replayed
         regs = [word() for _ in range(13)]
         regs[0] = rng.choice([word(), 0x02000000 + rng.randrange(0, 0x1000) * 4])
         sp = 0x03007000 + rng.randrange(0, 0x100) * 4
         flags = [rng.getrandbits(1) for _ in range(4)]
         mem_e, mem_i = rng.choice(IMAGES)
+        mem_i = bytearray(mem_i)
+        for ram, src, ln in OVERLAYS:
+            mem_i[ram - 0x03000000:ram - 0x03000000 + ln] = rom[src - 0x08000000:src - 0x08000000 + ln]
+        mem_i = bytes(mem_i)
         # reference
         uc.mem_write(0x02000000, mem_e)
         uc.mem_write(0x03000000, mem_i)
         for r, v in zip(REGS, regs): uc.reg_write(r, v)
         uc.reg_write(UC_ARM_REG_SP, sp)
-        uc.reg_write(UC_ARM_REG_LR, RET | 1)
-        uc.reg_write(UC_ARM_REG_CPSR, 0x1F | (1 << 5) | sum(f << b for f, b in zip(flags, (31, 30, 29, 28))))
+        uc.reg_write(UC_ARM_REG_LR, RET | is_thumb)
+        uc.reg_write(UC_ARM_REG_CPSR, 0x1F | ((1 << 5) if is_thumb else 0) | sum(f << b for f, b in zip(flags, (31, 30, 29, 28))))
         try:
-            uc.emu_start(entry | 1, RET, count=20000)
+            uc.emu_start(entry | is_thumb, RET, count=20000)
         except UcError:
             skipped['fault'] = skipped.get('fault', 0) + 1
             continue
@@ -82,7 +89,7 @@ for entry in entries:
         ctypes.memmove(ewram, mem_e, len(mem_e)); ctypes.memmove(iwram, mem_i, len(mem_i))
         c = Cpu()
         for i, v in enumerate(regs): c.r[i] = v
-        c.r[13], c.r[14] = sp, RET | 1
+        c.r[13], c.r[14] = sp, RET | is_thumb
         c.n, c.z, c.c, c.v = flags
         fault.value = unal.value = untr.value = 0
         getattr(dll, 'f_%08X' % entry)(ctypes.byref(c))
@@ -94,7 +101,7 @@ for entry in entries:
             continue
         got_r = list(c.r[:15]); got_f = [c.n, c.z, c.c, c.v]
         bad = []
-        if fault.value: bad.append('C faulted, reference did not')
+        if fault.value: bad.append('C faulted at %08X, reference did not' % ctypes.c_uint32.in_dll(dll, 'rt_fault_addr').value)
         for i in range(15):
             if got_r[i] != want_r[i]: bad.append('r%d got %08X want %08X' % (i, got_r[i], want_r[i]))
         if got_f != want_f: bad.append('NZCV got %s want %s' % (got_f, want_f))
@@ -105,8 +112,11 @@ for entry in entries:
             break
         good += 1
         ok += 1
-    if good: funcs_ok += 1
+    if good:
+        funcs_ok += 1
+        arm_ok += not is_thumb
 print('functions checked %d, with at least one valid case %d, valid cases %d, mismatching functions %d' % (len(entries), funcs_ok, ok, len(fails)))
+print('ARM functions with a valid case:', arm_ok, 'of', sum(1 for _, t in entries if not t))
 print('skipped cases:', skipped)
 for e, b in fails[:30]:
     print('  %08X: %s' % (e, '; '.join(b[:4])))

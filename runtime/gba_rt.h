@@ -9,6 +9,9 @@ typedef uint64_t u64;
 typedef struct {
     u32 r[16];
     u32 n, z, c, v;
+    u32 cpsr_c; /* mode and the I/F/T bits */
+    u32 spsr[32]; /* SPSR of every exception mode (indexed by the mode bits) */
+    u32 bank_sp[32], bank_lr[32]; /* r13/r14 of every mode, indexed by the mode bits (the current mode's live in r[]) */
 } Cpu;
 
 /* bus: byte, halfword and word accesses; the unaligned rules of the ARM7TDMI live in the implementation */
@@ -16,10 +19,26 @@ u32 rd32(u32 a);
 u32 rd16(u32 a);
 u32 rd8(u32 a);
 u32 rdsh(u32 a);
+u32 rdsb(u32 a);
+u32 rt_mrs(Cpu *c);
+void rt_msr(Cpu *c, u32 fields, u32 v);
+u32 rt_mrs_spsr(Cpu *c);
+void rt_msr_spsr(Cpu *c, u32 fields, u32 v);
+/* time: a backward branch is a place where time can pass and interrupts can be taken */
+extern int rt_budget;
+void rt_yield(Cpu *c);
+#define YIELD() do { if (--rt_budget < 0) { STORE(); rt_yield(c); RELOAD(); } } while (0)
 void wr32(u32 a, u32 v);
 void wr16(u32 a, u32 v);
 void wr8(u32 a, u32 v);
 void rt_untranslated(Cpu *c, u32 addr);
+/* BIOS call (SWI n) */
+void rt_swi(Cpu *c, u32 n);
+/* jump to the code at a run-time address (a tail call): generated, looks the address up among the translated functions */
+extern u32 rt_site; /* the address of the instruction that made the last run-time jump (for diagnostics) */
+void rt_dispatch(Cpu *c, u32 target);
+/* what rt_dispatch does when the address is not a translated function */
+void rt_missing(Cpu *c, u32 target);
 
 #define LOAD() \
     u32 r0 = c->r[0], r1 = c->r[1], r2 = c->r[2], r3 = c->r[3], r4 = c->r[4], r5 = c->r[5], r6 = c->r[6], r7 = c->r[7], \

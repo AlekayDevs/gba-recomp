@@ -239,7 +239,10 @@ fn walk(rom: &Rom, d: &mut Discovery, base: Option<&Discovery>, mut work: VecDeq
                         }
                         None => {}
                     }
-                    break;
+                    // `MOV LR, PC` + `BX Rm` / `LDR PC, ..`: a call through a register, the code goes on after it
+                    if !(!thumb && prev == "mov lr, pc") {
+                        break;
+                    }
                 }
                 Flow::Undefined => {
                     d.undefined.insert(pc);

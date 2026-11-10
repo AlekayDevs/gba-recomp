@@ -3,6 +3,7 @@
 pub mod arm;
 pub mod discover;
 pub mod gen;
+pub mod gen_arm;
 pub mod map;
 pub mod rom;
 pub mod thumb;

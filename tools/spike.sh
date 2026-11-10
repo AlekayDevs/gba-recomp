@@ -7,5 +7,5 @@ ROM=$1; W=$2; CASES=${3:-8}; SEED=${4:-1}
 TCC=${TCC:-tcc}; PY=${PY:-python}
 mkdir -p "$W"
 ./target/release/gba-recomp gen "$ROM" "$W/gen.c" --pointers --overlay 030056F0:080B197C:135C --overlay 0300404C:080AF3A4:380
-time "$TCC" -shared -rdynamic -Iruntime -o "$W/gen.dll" "$W/gen.c" runtime/gba_rt.c
-"$PY" tools/spike_diff.py "$ROM" "$W/gen.dll" "$W/gen.c.list" "$CASES" "$SEED"
+time "$TCC" -shared -rdynamic -Iruntime -o "$W/gen.dll" "$W/gen.c" runtime/gba_test.c runtime/gba_cpu.c
+"$PY" tools/spike_diff.py "$ROM" "$W/gen.dll" "$W/gen.c.list" "$CASES" "$SEED" 030056F0:080B197C:135C 0300404C:080AF3A4:380

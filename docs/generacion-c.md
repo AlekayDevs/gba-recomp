@@ -34,7 +34,7 @@ cargo build --release
 TCC=<tcc> PY=<python con unicorn> tools/spike.sh <rom.gba> <directorio de trabajo> [casos] [semilla]
 ```
 
-`gen` escribe el C y la lista de funciones; `runtime/gba_rt.{h,c}` es el runtime del spike. El C generado no se sube (deriva de la ROM).
+`gen` escribe el C y la lista de funciones; `runtime/gba_rt.h y runtime/gba_test.c` es el runtime del spike. El C generado no se sube (deriva de la ROM).
 
 ## Límites de la prueba
 
