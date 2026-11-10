@@ -52,6 +52,20 @@ static void dma_run(int ch) {
     int dstc = (ctl >> 5) & 3, srcc = (ctl >> 7) & 3;
     u32 step = w32 ? 4 : 2;
     u32 src = dma_src[ch], dst = dma_dst[ch];
+    if (!w32 && (dst >> 24) == 0x0D) {
+        /* to the EEPROM: one bit per halfword */
+        uint8_t bits[256];
+        u32 m = n > 256 ? 256 : n;
+        for (u32 i = 0; i < m; i++) { bits[i] = rd16(src) & 1; src += srcc == 1 ? -step : (srcc == 2 ? 0 : step); }
+        eeprom_write_bits(bits, m);
+        n = 0;
+    } else if (!w32 && (src >> 24) == 0x0D) {
+        for (u32 i = 0; i < n; i++) {
+            wr16(dst, eeprom_read_bit());
+            dst += dstc == 1 ? -step : (dstc == 2 ? 0 : step);
+        }
+        n = 0;
+    }
     for (u32 i = 0; i < n; i++) {
         if (w32) wr32(dst, rd32(src)); else wr16(dst, rd16(src));
         dst += dstc == 1 ? -step : (dstc == 2 ? 0 : step);

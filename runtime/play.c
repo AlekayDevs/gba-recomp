@@ -119,6 +119,15 @@ int main(int argc, char **argv) {
     freq = SDL_GetPerformanceFrequency();
     for (int i = 0; i < SDL_NumJoysticks(); i++) if (SDL_IsGameController(i)) { pad = SDL_GameControllerOpen(i); break; }
 
+    {
+        /* the save file goes next to the ROM: <rom without .gba>.sav */
+        char sav[512];
+        snprintf(sav, sizeof sav, "%s", argv[1]);
+        char *dot = strrchr(sav, '.');
+        if (dot && (!strchr(dot, '/')) && (!strchr(dot, 92))) *dot = 0;
+        strncat(sav, ".sav", sizeof sav - strlen(sav) - 1);
+        save_init(sav);
+    }
     sys_max_frames = 0;
     sys_frame_hook = on_frame;
     static Cpu cpu;

@@ -10,7 +10,7 @@ mkdir -p "$W"; touch "$W/roots.txt"
 i=0
 while [ $i -lt 200 ]; do
   ./target/release/gba-recomp gen "$ROM" "$W/gen.c" --pointers --roots-file "$W/roots.txt" "$@" | sed -n 2p
-  "$TCC" -Iruntime -o "$W/run.exe" "$W/gen.c" runtime/gba_cpu.c runtime/gba_bus.c runtime/gba_sys.c runtime/gba_ppu.c runtime/gba_bios.c runtime/run_headless.c
+  "$TCC" -Iruntime -o "$W/run.exe" "$W/gen.c" runtime/gba_cpu.c runtime/gba_bus.c runtime/gba_sys.c runtime/gba_ppu.c runtime/gba_save.c runtime/gba_bios.c runtime/run_headless.c
   set +e
   "$W/run.exe" "$ROM" "$FRAMES" $RUN_ARGS > "$W/out.txt" 2> "$W/err.txt"
   rc=$?

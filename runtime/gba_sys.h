@@ -40,6 +40,11 @@ int ppu_write_ppm(const char *path);
 extern uint32_t ppu_frame[160][240];
 extern u32 sys_keys; /* pressed keys, active high (bit 0 = A) */
 
+/* save.c */
+void save_init(const char *path);
+void eeprom_write_bits(const uint8_t *bits, u32 n);
+u32 eeprom_read_bit(void);
+
 /* bios.c */
 void bios_swi(Cpu *c, u32 n);
 #endif
