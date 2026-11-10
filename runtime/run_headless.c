@@ -1,11 +1,18 @@
 /* Runs the recompiled game without a window: the entry point, a number of frames, then a summary of the state.
-     run <rom.gba> [frames] [--press KEYS@FRAME...]   */
+     run <rom.gba> [frames] [--press KEY@FRAME[+LEN]]... [--shot file.ppm] [--shot-at FRAME:file.ppm]...
+   Keys: a b select start right left up down r l. */
 #include "gba_sys.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 void rt_entry(Cpu *c); /* generated: calls the function at the entry of the ROM */
+
+static struct { u32 key, from, to; } presses[64];
+static int n_presses;
+static struct { u32 frame; char path[260]; } shots[16];
+static int n_shots;
+static const char *final_shot;
 
 static u32 hash(const uint8_t *p, u32 n) {
     u32 h = 2166136261u;
@@ -19,10 +26,25 @@ void sys_report(void) {
     printf("frames %u  DISPCNT %04X  BG0CNT %04X  IE %04X  IME %u\n", sys_frames, io_get16(IO_DISPCNT), io_get16(0x08), io_get16(IO_IE), io_get16(IO_IME));
     printf("hash  vram %08X  pal %08X  oam %08X  ewram %08X  iwram %08X  (palette entries not 0: %u)\n",
            hash(rt_vram, sizeof rt_vram), hash(rt_pal, sizeof rt_pal), hash(rt_oam, sizeof rt_oam), hash(rt_ewram, sizeof rt_ewram), hash(rt_iwram, sizeof rt_iwram), pal);
+    if (final_shot && ppu_write_ppm(final_shot)) printf("screenshot %s\n", final_shot);
+}
+
+static void on_frame(u32 f) {
+    u32 k = 0;
+    for (int i = 0; i < n_presses; i++) if (f >= presses[i].from && f < presses[i].to) k |= presses[i].key;
+    sys_keys = k;
+    for (int i = 0; i < n_shots; i++) if (shots[i].frame == f && ppu_write_ppm(shots[i].path)) printf("screenshot %s (frame %u)\n", shots[i].path, f);
+}
+
+static u32 key_bit(const char *n) {
+    static const char *names[] = {"a", "b", "select", "start", "right", "left", "up", "down", "r", "l"};
+    for (int i = 0; i < 10; i++) if (!strcmp(n, names[i])) return 1u << i;
+    fprintf(stderr, "unknown key %s\n", n);
+    exit(2);
 }
 
 int main(int argc, char **argv) {
-    if (argc < 2) { fprintf(stderr, "usage: run <rom.gba> [frames]\n"); return 2; }
+    if (argc < 2) { fprintf(stderr, "usage: run <rom.gba> [frames] [--press KEY@FRAME[+LEN]] [--shot file.ppm] [--shot-at FRAME:file.ppm]\n"); return 2; }
     FILE *f = fopen(argv[1], "rb");
     if (!f) { perror(argv[1]); return 1; }
     fseek(f, 0, SEEK_END);
@@ -31,7 +53,23 @@ int main(int argc, char **argv) {
     rt_rom = malloc(rt_rom_len);
     if (fread(rt_rom, 1, rt_rom_len, f) != rt_rom_len) return 1;
     fclose(f);
-    sys_max_frames = argc > 2 ? (u32)atoi(argv[2]) : 60;
+    sys_max_frames = 60;
+    for (int i = 2; i < argc; i++) {
+        if (!strcmp(argv[i], "--press") && i + 1 < argc) {
+            char name[16]; u32 from, len = 4;
+            if (sscanf(argv[++i], "%15[a-z]@%u+%u", name, &from, &len) < 2) { fprintf(stderr, "bad --press\n"); return 2; }
+            presses[n_presses].key = key_bit(name); presses[n_presses].from = from; presses[n_presses].to = from + len; n_presses++;
+        } else if (!strcmp(argv[i], "--shot") && i + 1 < argc) {
+            final_shot = argv[++i];
+        } else if (!strcmp(argv[i], "--shot-at") && i + 1 < argc) {
+            u32 fr; char path[260];
+            if (sscanf(argv[++i], "%u:%259s", &fr, path) != 2) { fprintf(stderr, "bad --shot-at\n"); return 2; }
+            shots[n_shots].frame = fr; strcpy(shots[n_shots].path, path); n_shots++;
+        } else if (argv[i][0] != '-') {
+            sys_max_frames = (u32)atoi(argv[i]);
+        }
+    }
+    sys_frame_hook = on_frame;
     static Cpu cpu;
     sys_init(&cpu);
     rt_entry(&cpu);

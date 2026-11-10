@@ -7,7 +7,7 @@ Unicorn and in the generated C, and compare r0-r14, N Z C V and every byte of EW
 does not finish, makes an unaligned access (the ARM7TDMI rotates, Unicorn's core does not) or calls a function not translated.
 Needs `pip install unicorn`. Compiles with:  tcc -shared -Iruntime -o gen.dll gen.c runtime/gba_rt.c
 """
-import ctypes, random, sys
+import ctypes, os, random, sys
 from unicorn import Uc, UC_ARCH_ARM, UC_MODE_THUMB, UcError
 from unicorn.arm_const import *
 
@@ -30,12 +30,18 @@ untr = ctypes.c_uint32.in_dll(dll, 'rt_untranslated_addr')
 class Cpu(ctypes.Structure):
     _fields_ = [('r', ctypes.c_uint32 * 16), ('n', ctypes.c_uint32), ('z', ctypes.c_uint32), ('c', ctypes.c_uint32), ('v', ctypes.c_uint32), ('cpsr_c', ctypes.c_uint32), ('spsr', ctypes.c_uint32 * 32), ('bank_sp', ctypes.c_uint32 * 32), ('bank_lr', ctypes.c_uint32 * 32)]
 
-uc = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
 from unicorn import UC_PROT_READ, UC_PROT_EXEC
-uc.mem_map(0x08000000, 0x1000000, UC_PROT_READ | UC_PROT_EXEC)
-uc.mem_write(0x08000000, rom)  # (writing before the protection: see below)
-uc.mem_map(0x02000000, 0x40000)
-uc.mem_map(0x03000000, 0x8000)
+
+def new_uc():
+    u = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
+    u.mem_map(0x08000000, 0x1000000)
+    u.mem_write(0x08000000, rom)
+    u.mem_protect(0x08000000, 0x1000000, UC_PROT_READ | UC_PROT_EXEC)  # the ROM is not writable
+    u.mem_map(0x02000000, 0x40000)
+    u.mem_map(0x03000000, 0x8000)
+    return u
+
+uc = new_uc()
 RET = 0x0DFFFFF0
 
 def word():
@@ -56,6 +62,7 @@ OVERLAYS = [tuple(int(x, 16) for x in a.split(':')) for a in sys.argv[6:]]  # RA
 for entry, is_thumb in entries:
     good = 0
     for k in range(cases):
+        if os.environ.get('ONLY_K') and k != int(os.environ['ONLY_K']): continue
         rng.seed('%d:%08X:%d' % (seed, entry, k))  # a case depends only on (seed, function, number): a single function can be replayed
         regs = [word() for _ in range(13)]
         regs[0] = rng.choice([word(), 0x02000000 + rng.randrange(0, 0x1000) * 4])
@@ -77,9 +84,12 @@ for entry, is_thumb in entries:
             uc.emu_start(entry | is_thumb, RET, count=20000)
         except UcError:
             skipped['fault'] = skipped.get('fault', 0) + 1
+            # after a fault the core can keep a stale exception/translation state that disturbs the next run: flush it
+            if os.environ.get('RENEW', 'new') == 'new': uc = new_uc()  # (RENEW=none: faster, but the cases after a fault can give a wrong reference)
             continue
         if uc.reg_read(UC_ARM_REG_PC) != RET:
             skipped['no end'] = skipped.get('no end', 0) + 1
+            uc = new_uc()  # a run that was cut off leaves the core in a state that can disturb the next one
             continue
         cpsr = uc.reg_read(UC_ARM_REG_CPSR)
         want_r = [uc.reg_read(r) for r in REGS] + [uc.reg_read(UC_ARM_REG_SP), uc.reg_read(UC_ARM_REG_LR)]
@@ -108,7 +118,7 @@ for entry, is_thumb in entries:
         if bytes(ewram) != want_e: bad.append('EWRAM differs')
         if bytes(iwram) != want_i: bad.append('IWRAM differs')
         if bad:
-            fails.append((entry, bad))
+            fails.append((entry, ['case %d' % k] + bad))
             break
         good += 1
         ok += 1

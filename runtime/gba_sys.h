@@ -35,6 +35,9 @@ void sys_halt(Cpu *c);             /* wait for an interrupt: advance a frame */
 void sys_run_irq(Cpu *c);
 extern u32 sys_frames;
 extern u32 sys_max_frames;
+extern void (*sys_frame_hook)(u32 frame);
+int ppu_write_ppm(const char *path);
+extern uint32_t ppu_frame[160][240];
 extern u32 sys_keys; /* pressed keys, active high (bit 0 = A) */
 
 /* bios.c */

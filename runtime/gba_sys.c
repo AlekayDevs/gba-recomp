@@ -11,9 +11,9 @@ static Cpu *cpu_ptr;
 static u32 dma_src[4], dma_dst[4], dma_cnt[4];
 static u32 timer_cnt[4], timer_acc[4];
 
-/* a hook for the PPU: called after each visible line is "drawn" (weak: the headless runner has none yet) */
-void ppu_line(int line) { (void)line; }
-void ppu_frame_done(void) {}
+void ppu_line(int line);
+void ppu_frame_done(void);
+void (*sys_frame_hook)(u32 frame); /* called when a frame ends (the headless runner presses keys and takes screenshots here) */
 
 void sys_init(Cpu *c) {
     cpu_ptr = c;
@@ -147,6 +147,7 @@ static void sys_step_line(Cpu *c, int deliver) {
         cur_line = 0;
         ppu_frame_done();
         sys_frames++;
+        if (sys_frame_hook) sys_frame_hook(sys_frames);
         if (sys_max_frames && sys_frames >= sys_max_frames) {
             fprintf(stderr, "stopped after %u frames
 ", sys_frames);
