@@ -50,7 +50,7 @@ fn main() {
             for l in std::fs::read_to_string(f).unwrap_or_default().lines() {
                 let l = l.trim();
                 if l.is_empty() || l.starts_with('#') { continue; }
-                let v = parse_addr(l);
+                let v = gba_recomp::discover::canon(parse_addr(l));
                 extra_roots.push((v & !1, v & 1 == 1));
             }
         }
@@ -145,7 +145,8 @@ void rt_dispatch(Cpu *c, u32 target) {
     u32 t = (target & 1) ? target & ~1u : target & ~3u, lo = 0, hi = ");
                 text.push_str(&format!("{};
 ", bodies.len()));
-                text.push_str("    while (lo < hi) {
+                text.push_str("    if (t >= 0x0A000000u && t < 0x0E000000u) t = 0x08000000u | (t & 0x01FFFFFFu); /* the ROM seen through its mirrors */
+    while (lo < hi) {
         u32 m = (lo + hi) / 2;
         if (rt_table[m].a == t) { rt_table[m].f(c); return; }
         if (rt_table[m].a < t) lo = m + 1; else hi = m;

@@ -8,3 +8,5 @@
 /target/
 *.log
 saves/
+*.ppm
+dump_*.bin
