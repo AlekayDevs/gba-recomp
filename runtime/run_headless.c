@@ -24,6 +24,7 @@ void sys_report(void) {
     u32 pal = 0;
     for (int i = 0; i < 512; i++) if (rt_pal[i * 2] | rt_pal[i * 2 + 1]) pal++;
     printf("frames %u  DISPCNT %04X  BG0CNT %04X  IE %04X  IME %u\n", sys_frames, io_get16(IO_DISPCNT), io_get16(0x08), io_get16(IO_IE), io_get16(IO_IME));
+    printf("last site 0x%08X  (yield or run-time jump)\n", rt_site);
     printf("hash  vram %08X  pal %08X  oam %08X  ewram %08X  iwram %08X  (palette entries not 0: %u)\n",
            hash(rt_vram, sizeof rt_vram), hash(rt_pal, sizeof rt_pal), hash(rt_oam, sizeof rt_oam), hash(rt_ewram, sizeof rt_ewram), hash(rt_iwram, sizeof rt_iwram), pal);
     if (final_shot && ppu_write_ppm(final_shot)) printf("screenshot %s\n", final_shot);

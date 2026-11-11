@@ -88,3 +88,27 @@ Detalle en `..\minishcap-recomp\plan.md`. Resumen:
 - La PPU y el tiempo (VBlank/HBlank/DMA) determinan si el juego arranca; dejar tiempo para depurarlo con comparación contra un emulador.
 - Código en IWRAM/EWRAM que cambia en ejecución, si existiera, obligaría a un intérprete o a JIT.
 - Tamaño del C generado (≈260 000 instrucciones): compilar en el móvil con TinyCC puede ser lento; medir pronto.
+
+## Punto de reanudación (2026-11-10)
+
+**Estado:** con `<rom>.sav` de una partida creada, el juego arranca, entra en la partida y reproduce la intro de la vidriera. Se congela en el fotograma ~4270, justo tras el fundido a negro de esa escena.
+
+**Causa hallada (a medio cerrar):** la pila del código principal (modo sistema, base `0x03007F00`, crece hacia abajo) deriva hacia arriba: un callee vuelve con `sp` más alto que al entrar y el error se acumula (+4 en el fotograma 4131, +8 en 4254, +12 desde 4256) hasta pisar el marco de la pila de IRQ (`0x03007F8C..0x03007FA0`). `IntrMain` restaura entonces `IE` con basura (`6E87`), el juego queda sin VBlank (`IE=2080`) y se queda en `Halt` para siempre.
+
+**Siguiente paso:** la función más interna que rompe el contrato es la Thumb `0x080174A4` (la llama el bucle de entidades de la RAM, `0x03005F94`: `mov lr,pc; bx r1` con la tabla de `r10`). Hay que desensamblarla (`gba-recomp disasm <rom> 080174A4 40 thumb`), ver por qué `sp` no vuelve igual (¿`pop` de más, retorno por `pop {pc}`/`bx` mal reconocido, *tail call* con pila distinta?) y corregir el generador (`src/gen.rs`). Después volver a pasar `tools/spike_diff.py` y regenerar con `tools/complete.sh`.
+
+**Herramientas de diagnóstico ya hechas:**
+- `-DRT_TRACE` al compilar el C generado: `RT_CHK_BEFORE/AFTER` comprueban que cada llamada devuelve con el mismo `sp`; `rt_sp_mismatch` (en un `trace.c` propio, ver abajo) agrupa por sitio de llamada/destino/variación. `RT_ENTER` da la traza de entradas de función. Sin `-DRT_TRACE` los macros no generan código.
+- `YIELD_AT(addr)` anota el último bucle que cedió el control; `run_headless` imprime `last site`.
+- `run_headless --dump-at FRAME` vuelca registros de vídeo y `dump_*.bin` (VRAM, paleta, OAM, E/S).
+- `rt_sp_mismatch` y `rt_enter` los define quien compila con `-DRT_TRACE`; el `trace.c` usado está solo en el scratchpad: conviene guardarlo en `tools/` (agrupa por sitio, destino y variación, con el primer y último fotograma).
+
+**Hecho hoy:** guardado EEPROM (`runtime/gba_save.c`); lectura de mapas de fondo con base >= `0x8000` en la PPU (la máscara `0x17FFF` quitaba el bit 15); lecturas directas de la CPU en `0x0D000000`; normalización de espejos de la ROM (`0x0A..`, `0x0C..`) en raíces y `rt_dispatch`.
+
+**Pendientes (por orden):**
+1. Cerrar el desvío de `sp` de arriba y comprobar que la intro avanza hasta el título y el juego.
+2. Mover las raíces dinámicas (`scratchpad\wc\cwoots.txt`, ~60 direcciones) a `..\minishcap-recomp\games\` y hacer que el motor lea el perfil `games/<id>.toml`.
+3. Sonido (M4A, FIFO y PSG); hoy el mezclador corre pero no se oye nada.
+4. Estados guardados; comprobar `BgAffineSet`/`ObjAffineSet` (escritas de memoria, sin verificar); resto de la BIOS.
+5. `scan` que falle si algo a subir contiene bytes de la ROM, antes de cualquier push. Nada se ha subido en esta sesión.
+6. Limpiar los `.ppm` y `dump_*.bin` que cayeron en la raíz del repo (ahora en `.gitignore`).

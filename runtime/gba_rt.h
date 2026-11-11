@@ -27,6 +27,25 @@ void rt_msr_spsr(Cpu *c, u32 fields, u32 v);
 /* time: a backward branch is a place where time can pass and interrupts can be taken */
 extern int rt_budget;
 void rt_yield(Cpu *c);
+/* a backward branch at `a`: when it has run long enough, time passes (and the site is noted for diagnostics) */
+/* optional call trace (compile with -DRT_TRACE and provide rt_enter): called at the start of every translated function */
+#ifdef RT_TRACE
+void rt_enter(Cpu *c, u32 addr);
+#define RT_ENTER(a) rt_enter(c, (a))
+/* the call contract: after a call returns, r13 is what it was before the call */
+void rt_sp_mismatch(Cpu *c, u32 site, u32 target, u32 before, u32 after);
+#define RT_DECL() u32 sp_chk_, tg_chk_
+#define RT_TG(x) (tg_chk_ = (x))
+#define RT_CHK_BEFORE() (sp_chk_ = r13)
+#define RT_CHK_AFTER(s, t) do { if (r13 != sp_chk_) rt_sp_mismatch(c, (s), (t), sp_chk_, r13); } while (0)
+#else
+#define RT_ENTER(a) ((void)0)
+#define RT_DECL() ((void)0)
+#define RT_TG(x) ((void)0)
+#define RT_CHK_BEFORE() ((void)0)
+#define RT_CHK_AFTER(s, t) ((void)0)
+#endif
+#define YIELD_AT(a) do { if (--rt_budget < 0) { rt_site = (a); STORE(); rt_yield(c); RELOAD(); } } while (0)
 #define YIELD() do { if (--rt_budget < 0) { STORE(); rt_yield(c); RELOAD(); } } while (0)
 void wr32(u32 a, u32 v);
 void wr16(u32 a, u32 v);

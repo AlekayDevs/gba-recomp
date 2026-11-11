@@ -101,6 +101,8 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
     let mut o = String::new();
     writeln!(o, "void {}(Cpu *c) {{", name(entry)).unwrap();
     writeln!(o, "    LOAD();").unwrap();
+    writeln!(o, "    RT_ENTER(0x{entry:08X}u);").unwrap();
+    writeln!(o, "    RT_DECL();").unwrap();
     if insns.keys().next() != Some(&entry) {
         targets.insert(entry);
         writeln!(o, "    goto L_{entry:08X};").unwrap();
@@ -126,7 +128,7 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
                 calls.insert(t);
                 write!(s, "STORE(); {}(c); return;", name(t)).unwrap();
             } else if t <= pc {
-                write!(s, "YIELD(); goto L_{t:08X};").unwrap();
+                write!(s, "YIELD_AT(0x{pc:08X}u); goto L_{t:08X};").unwrap();
             } else {
                 write!(s, "goto L_{t:08X};").unwrap();
             }
@@ -140,12 +142,12 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
                 s.push_str("STORE(); return;");
             } else if let (Some(&t), true) = (d.resolved.get(&pc), after_mov_lr_pc) {
                 calls.insert(t & !1);
-                write!(s, "STORE(); {}(c); RELOAD();", name(t & !1)).unwrap();
+                write!(s, "RT_CHK_BEFORE(); STORE(); {}(c); RELOAD(); RT_CHK_AFTER(0x{pc:08X}u, 0x{:08X}u);", name(t & !1), t & !1).unwrap();
             } else if let Some(&t) = d.resolved.get(&pc) {
                 jump(&mut s, t & !1, calls);
             } else if after_mov_lr_pc {
                 // `MOV LR, PC` + `BX Rm`: a call through a register (the callee returns to the next instruction)
-                write!(s, "STORE(); rt_site = 0x{pc:08X}u; rt_dispatch(c, {}); RELOAD();", r(rm)).unwrap();
+                write!(s, "RT_CHK_BEFORE(); RT_TG({0}); STORE(); rt_site = 0x{pc:08X}u; rt_dispatch(c, {0}); RELOAD(); RT_CHK_AFTER(0x{pc:08X}u, tg_chk_);", r(rm)).unwrap();
             } else {
                 write!(s, "STORE(); rt_site = 0x{pc:08X}u; rt_dispatch(c, {}); return;", r(rm)).unwrap();
             }
@@ -172,7 +174,7 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
                     let (Flow::Branch(t) | Flow::CondBranch(t) | Flow::Call(t) | Flow::CondCall(t)) = i.flow else { unreachable!() };
                     if w & (1 << 24) != 0 {
                         calls.insert(t);
-                        write!(s, "r14 = 0x{:08X}u; STORE(); {}(c); RELOAD();", pc + 4, name(t)).unwrap();
+                        write!(s, "r14 = 0x{:08X}u; RT_CHK_BEFORE(); STORE(); {}(c); RELOAD(); RT_CHK_AFTER(0x{pc:08X}u, 0x{t:08X}u);", pc + 4, name(t)).unwrap();
                     } else {
                         jump(&mut s, t, calls);
                     }

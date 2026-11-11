@@ -85,6 +85,8 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
     let mut o = String::new();
     writeln!(o, "void {}(Cpu *c) {{", name(entry)).unwrap();
     writeln!(o, "    LOAD();").unwrap();
+    writeln!(o, "    RT_ENTER(0x{entry:08X}u);").unwrap();
+    writeln!(o, "    RT_DECL();").unwrap();
     // the instructions are emitted in address order: when code that belongs to this function sits before the entry, jump to it
     if insns.keys().next() != Some(&entry) {
         targets.insert(entry);
@@ -131,7 +133,7 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
                 calls.insert(t);
                 writeln!(o, "{indent}STORE(); {}(c); return;", name(t)).unwrap();
             } else if t <= pc {
-                writeln!(o, "{indent}YIELD(); goto L_{t:08X};").unwrap();
+                writeln!(o, "{indent}YIELD_AT(0x{pc:08X}u); goto L_{t:08X};").unwrap();
             } else {
                 writeln!(o, "{indent}goto L_{t:08X};").unwrap();
             }
@@ -328,7 +330,7 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
             0b11110 => {
                 let Flow::Call(t) = i.flow else { return Err(format!("{} at 0x{pc:08X}", i.text)) };
                 calls.insert(t);
-                line(&mut o, format!("r14 = 0x{:08X}u; STORE(); {}(c); RELOAD();", (pc + 4) | 1, name(t)));
+                line(&mut o, format!("r14 = 0x{:08X}u; RT_CHK_BEFORE(); STORE(); {}(c); RELOAD(); RT_CHK_AFTER(0x{pc:08X}u, 0x{t:08X}u);", (pc + 4) | 1, name(t)));
             }
             _ => return Err(format!("{} at 0x{pc:08X}", i.text)),
         }

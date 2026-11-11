@@ -163,6 +163,5 @@ void wr32(u32 a, u32 v) {
 
 void rt_untranslated(Cpu *c, u32 addr) { (void)c; fprintf(stderr, "untranslated function 0x%08X\n", addr); }
 u32 rt_site;
-void rt_missing(Cpu *c, u32 target) { (void)c; fprintf(stderr, "jump to 0x%08X from 0x%08X, not a translated function
-", target, rt_site); fflush(stderr); exit(4); }
+void rt_missing(Cpu *c, u32 target) { (void)c; fprintf(stderr, "jump to 0x%08X from 0x%08X, not a translated function\n", target, rt_site); fflush(stderr); exit(4); }
 void rt_swi(Cpu *c, u32 n) { bios_swi(c, n); }
