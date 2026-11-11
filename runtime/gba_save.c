@@ -9,7 +9,7 @@
 static uint8_t eeprom[8192];
 static u32 eeprom_size; /* 0 until the first request, then 512 or 8192 */
 static char save_path[512];
-static u32 read_block, read_pos; /* the block selected by the last read request, and how many bits were read */
+static u32 read_block, read_pos = 68; /* the block selected by the last read request, and how many bits were read (68 = nothing pending: reads give 1, "ready") */
 static int dirty_error;
 
 void save_init(const char *path) {
@@ -48,6 +48,7 @@ void eeprom_write_bits(const uint8_t *bits, u32 n) {
         for (int k = 0; k < 8; k++) v = (uint8_t)((v << 1) | bits[2 + abits + b * 8 + k]);
         eeprom[addr * 8 + b] = v;
     }
+    read_pos = 68; /* the write is instantaneous: the status poll that follows reads 1 */
     flush();
 }
 

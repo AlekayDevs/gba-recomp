@@ -81,6 +81,11 @@ u32 rd16(u32 a) {
     u32 v;
     switch (a >> 24) {
     case 0x04: v = (a & 0xFFFFFF) < 0x400 ? io_read16(a & ~1u) : 0; break;
+    case 0x0D:
+        /* the EEPROM (at 0x0D000000 on 16 MB ROMs, at its top on bigger ones): one bit per halfword read */
+        if (rt_rom_len <= 0x1000000 || (a & 0x01FFFFFF) >= 0x01FFFF00) { v = eeprom_read_bit(); break; }
+        v = rd8(a & ~1u) | (rd8((a & ~1u) + 1) << 8);
+        break;
     default: v = rd8(a & ~1u) | (rd8((a & ~1u) + 1) << 8); break;
     }
     return (a & 1) ? (v >> 8) | (v << 24) : v;

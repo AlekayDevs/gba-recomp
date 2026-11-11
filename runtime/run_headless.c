@@ -1,5 +1,5 @@
 /* Runs the recompiled game without a window: the entry point, a number of frames, then a summary of the state.
-     run <rom.gba> [frames] [--press KEY@FRAME[+LEN]]... [--shot file.ppm] [--shot-at FRAME:file.ppm]...
+     run <rom.gba> [frames] [--press KEY@FRAME[+LEN]]... [--shot file.ppm] [--shot-at FRAME:file.ppm]... [--dump-at FRAME]
    Keys: a b select start right left up down r l. */
 #include "gba_sys.h"
 #include <stdio.h>
@@ -29,8 +29,29 @@ void sys_report(void) {
     if (final_shot && ppu_write_ppm(final_shot)) printf("screenshot %s\n", final_shot);
 }
 
+static u32 dump_frame = ~0u;
+
+static void dump_video(void) {
+    printf("DISPCNT %04X  BGCNT %04X %04X %04X %04X  WIN0H %04X WIN0V %04X WININ %04X WINOUT %04X  BLDCNT %04X BLDALPHA %04X BLDY %04X MOSAIC %04X
+",
+           io_get16(0), io_get16(8), io_get16(0xA), io_get16(0xC), io_get16(0xE), io_get16(0x40), io_get16(0x44), io_get16(0x48), io_get16(0x4A),
+           io_get16(0x50), io_get16(0x52), io_get16(0x54), io_get16(0x4C));
+    for (int i = 0; i < 4; i++) printf("BG%d scroll %u,%u
+", i, io_get16(0x10 + i * 4) & 0x1FF, io_get16(0x12 + i * 4) & 0x1FF);
+    { FILE *f; if ((f = fopen("dump_vram.bin", "wb"))) { fwrite(rt_vram, 1, sizeof rt_vram, f); fclose(f); }
+      if ((f = fopen("dump_pal.bin", "wb"))) { fwrite(rt_pal, 1, sizeof rt_pal, f); fclose(f); }
+      if ((f = fopen("dump_oam.bin", "wb"))) { fwrite(rt_oam, 1, sizeof rt_oam, f); fclose(f); }
+      if ((f = fopen("dump_io.bin", "wb"))) { fwrite(rt_io, 1, sizeof rt_io, f); fclose(f); } }
+", ppu_frame[52][27], ppu_frame[100][10]);
+    int n = 0;
+    for (int i = 0; i < 128; i++) { u32 a0 = rt_oam[i * 8] | rt_oam[i * 8 + 1] << 8; if ((a0 & 0x300) != 0x200) n++; }
+    printf("visible sprites %d
+", n);
+}
+
 static void on_frame(u32 f) {
     u32 k = 0;
+    if (f == dump_frame) dump_video();
     for (int i = 0; i < n_presses; i++) if (f >= presses[i].from && f < presses[i].to) k |= presses[i].key;
     sys_keys = k;
     for (int i = 0; i < n_shots; i++) if (shots[i].frame == f && ppu_write_ppm(shots[i].path)) printf("screenshot %s (frame %u)\n", shots[i].path, f);
@@ -55,6 +76,7 @@ int main(int argc, char **argv) {
     fclose(f);
     sys_max_frames = 60;
     for (int i = 2; i < argc; i++) {
+        if (!strcmp(argv[i], "--dump-at") && i + 1 < argc) { dump_frame = (u32)atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--press") && i + 1 < argc) {
             char name[16]; u32 from, len = 4;
             if (sscanf(argv[++i], "%15[a-z]@%u+%u", name, &from, &len) < 2) { fprintf(stderr, "bad --press\n"); return 2; }

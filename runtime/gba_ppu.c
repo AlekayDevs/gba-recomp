@@ -25,6 +25,9 @@ static void load_affine(void) {
     }
 }
 
+/* VRAM is 96 KB: offsets 0x18000..0x1FFFF mirror 0x10000..0x17FFF */
+static inline u32 vram_off(u32 o) { o &= 0x1FFFF; return o >= 0x18000 ? o - 0x8000 : o; }
+
 static void text_bg(int n, int y, u32 dispcnt) {
     (void)dispcnt;
     uint16_t *out = bg_line[n];
@@ -39,7 +42,7 @@ static void text_bg(int n, int y, u32 dispcnt) {
         u32 blk = 0;
         if (size == 1) blk = sx >> 8; else if (size == 2) blk = sy >> 8; else if (size == 3) blk = (sx >> 8) + ((sy >> 8) << 1);
         u32 e_off = sbase + blk * 0x800 + (((sy >> 3) & 31) * 32 + ((sx >> 3) & 31)) * 2;
-        u32 e = rt_vram[e_off & 0x17FFF] | (rt_vram[(e_off + 1) & 0x17FFF] << 8);
+        u32 e = rt_vram[vram_off(e_off)] | (rt_vram[vram_off(e_off + 1)] << 8);
         u32 tx = sx & 7, ty = sy & 7;
         if (e & 0x400) tx = 7 - tx;
         if (e & 0x800) ty = 7 - ty;
@@ -74,7 +77,7 @@ static void affine_bg(int n, u32 dispcnt) {
             tx &= dim - 1; ty &= dim - 1;
         }
         u32 e_off = sbase + (ty >> 3) * (dim >> 3) + (tx >> 3);
-        u32 tile = rt_vram[e_off & 0x17FFF];
+        u32 tile = rt_vram[vram_off(e_off)];
         u32 o = cbase + tile * 64 + (ty & 7) * 8 + (tx & 7);
         u32 col = o < 0x18000 ? rt_vram[o] : 0;
         out[i] = col ? pal16(col) & 0x7FFF : TRANSPARENT;
