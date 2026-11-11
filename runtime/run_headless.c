@@ -31,22 +31,24 @@ void sys_report(void) {
 
 static u32 dump_frame = ~0u;
 
+static void dump_file(const char *name, const void *p, size_t n) {
+    FILE *f = fopen(name, "wb");
+    if (f) { fwrite(p, 1, n, f); fclose(f); }
+}
+
+/* the video registers on stdout and VRAM, palette, OAM and I/O in dump_*.bin */
 static void dump_video(void) {
-    printf("DISPCNT %04X  BGCNT %04X %04X %04X %04X  WIN0H %04X WIN0V %04X WININ %04X WINOUT %04X  BLDCNT %04X BLDALPHA %04X BLDY %04X MOSAIC %04X
-",
+    printf("DISPCNT %04X  BGCNT %04X %04X %04X %04X  WIN0H %04X WIN0V %04X WININ %04X WINOUT %04X  BLDCNT %04X BLDALPHA %04X BLDY %04X MOSAIC %04X\n",
            io_get16(0), io_get16(8), io_get16(0xA), io_get16(0xC), io_get16(0xE), io_get16(0x40), io_get16(0x44), io_get16(0x48), io_get16(0x4A),
            io_get16(0x50), io_get16(0x52), io_get16(0x54), io_get16(0x4C));
-    for (int i = 0; i < 4; i++) printf("BG%d scroll %u,%u
-", i, io_get16(0x10 + i * 4) & 0x1FF, io_get16(0x12 + i * 4) & 0x1FF);
-    { FILE *f; if ((f = fopen("dump_vram.bin", "wb"))) { fwrite(rt_vram, 1, sizeof rt_vram, f); fclose(f); }
-      if ((f = fopen("dump_pal.bin", "wb"))) { fwrite(rt_pal, 1, sizeof rt_pal, f); fclose(f); }
-      if ((f = fopen("dump_oam.bin", "wb"))) { fwrite(rt_oam, 1, sizeof rt_oam, f); fclose(f); }
-      if ((f = fopen("dump_io.bin", "wb"))) { fwrite(rt_io, 1, sizeof rt_io, f); fclose(f); } }
-", ppu_frame[52][27], ppu_frame[100][10]);
+    for (int i = 0; i < 4; i++) printf("BG%d scroll %u,%u\n", i, io_get16(0x10 + i * 4) & 0x1FF, io_get16(0x12 + i * 4) & 0x1FF);
+    dump_file("dump_vram.bin", rt_vram, sizeof rt_vram);
+    dump_file("dump_pal.bin", rt_pal, sizeof rt_pal);
+    dump_file("dump_oam.bin", rt_oam, sizeof rt_oam);
+    dump_file("dump_io.bin", rt_io, sizeof rt_io);
     int n = 0;
     for (int i = 0; i < 128; i++) { u32 a0 = rt_oam[i * 8] | rt_oam[i * 8 + 1] << 8; if ((a0 & 0x300) != 0x200) n++; }
-    printf("visible sprites %d
-", n);
+    printf("visible sprites %d\n", n);
 }
 
 static void on_frame(u32 f) {
