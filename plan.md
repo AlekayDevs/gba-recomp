@@ -101,13 +101,14 @@ Detalle en `..\minishcap-recomp\plan.md`. Resumen:
 - `-DRT_TRACE` al compilar el C generado: `RT_CHK_BEFORE/AFTER` comprueban que cada llamada devuelve con el mismo `sp`; `rt_sp_mismatch` (en un `trace.c` propio, ver abajo) agrupa por sitio de llamada/destino/variación. `RT_ENTER` da la traza de entradas de función. Sin `-DRT_TRACE` los macros no generan código.
 - `YIELD_AT(addr)` anota el último bucle que cedió el control; `run_headless` imprime `last site`.
 - `run_headless --dump-at FRAME` vuelca registros de vídeo y `dump_*.bin` (VRAM, paleta, OAM, E/S).
-- `rt_sp_mismatch` y `rt_enter` los define quien compila con `-DRT_TRACE`; el `trace.c` usado está solo en el scratchpad: conviene guardarlo en `tools/` (agrupa por sitio, destino y variación, con el primer y último fotograma).
+- `rt_sp_mismatch` y `rt_enter` los define quien compila con `-DRT_TRACE`; están en `tools/rt_trace.c` (agrupa por sitio, destino y variación, con el primer y último fotograma). Uso: `tcc -DRT_TRACE -Iruntime gen.c tools/rt_trace.c runtime/*.c ...`.
 
 **Hecho hoy:** guardado EEPROM (`runtime/gba_save.c`); lectura de mapas de fondo con base >= `0x8000` en la PPU (la máscara `0x17FFF` quitaba el bit 15); lecturas directas de la CPU en `0x0D000000`; normalización de espejos de la ROM (`0x0A..`, `0x0C..`) en raíces y `rt_dispatch`.
 
 **Pendientes (por orden):**
 1. Cerrar el desvío de `sp` de arriba y comprobar que la intro avanza hasta el título y el juego.
-2. Mover las raíces dinámicas (`scratchpad\wc\cwoots.txt`, ~60 direcciones) a `..\minishcap-recomp\games\` y hacer que el motor lea el perfil `games/<id>.toml`.
+2. Las raíces dinámicas (33 direcciones únicas) están en `..\minishcap-recomp\games\dynamic_roots.txt` (sin commit en ese repo): hacer que el motor lea el perfil `games/<id>.toml` y las incluya.
+oots.txt`, ~60 direcciones) a `..\minishcap-recomp\games\` y hacer que el motor lea el perfil `games/<id>.toml`.
 3. Sonido (M4A, FIFO y PSG); hoy el mezclador corre pero no se oye nada.
 4. Estados guardados; comprobar `BgAffineSet`/`ObjAffineSet` (escritas de memoria, sin verificar); resto de la BIOS.
 5. `scan` que falle si algo a subir contiene bytes de la ROM, antes de cualquier push. Nada se ha subido en esta sesión.
