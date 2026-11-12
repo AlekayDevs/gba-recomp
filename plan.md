@@ -10,7 +10,7 @@ Estado a 2026-11-10. El motor es propio y estático (Rust), hermano de `snes-rec
 - Decodificadores ARM y Thumb: texto y flujo de control (`Flow`); 4 pruebas.
 - Descubrimiento de código desde la entrada: `BX` con literal, `ADD Rd,PC` + `BX`, punteros Thumb de los datos, tablas de `switch` de Thumb.
 - Con *Minish Cap* USA: 258 487 instrucciones (559 KB), 7088 funciones, 131 tablas de `switch`, 15 saltos indirectos dinámicos, 7 «indefinidas» (falsos positivos).
-- Repositorios en GitHub (privados): `AlexPerez7/gba-recomp` y `AlexPerez7/minishcap-recomp`.
+- Repositorios en GitHub (privados): `AlekayDevs/gba-recomp` y `AlekayDevs/minishcap-recomp`.
 
 ## 1. Analizador (lo que falta del descubrimiento)
 
