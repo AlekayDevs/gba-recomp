@@ -5,7 +5,7 @@ use gba_recomp::{arm, discover::{arm_pointers, discover_with, thumb_pointers}, t
 fn usage() -> ! {
     eprintln!(
         "gba-recomp <order>\n  info <rom.gba>                      header, checks and CRC32\n  disasm <rom.gba> <addr> [n] [thumb]  disassemble n instructions (default 32) at a bus address (hex)\n  map <rom.gba> [--pointers] [--overlay ...]  what is code, pools, tables and what is left unclaimed
-  gen <rom.gba> <out.c> [--pointers] [--overlay ...]  C for the Thumb functions the spike can translate\n  trace <rom.gba> [entry] [--root ADDR[:t]]... [--pointers] [--overlay RAM:ROM:LEN]... follow the flow of control from the entry point and summarize (--pointers: also from the Thumb function pointers in the data)"
+  gen <rom.gba> <out.c> [--pointers] [--overlay ...] [--profile games/<id>.toml]  C for the Thumb functions the spike can translate\n  trace <rom.gba> [entry] [--root ADDR[:t]]... [--pointers] [--overlay RAM:ROM:LEN]... follow the flow of control from the entry point and summarize (--pointers: also from the Thumb function pointers in the data)"
     );
     std::process::exit(2)
 }
@@ -24,6 +24,22 @@ fn main() {
         }),
         None => usage(),
     };
+    // --profile FILE: games/<id>.toml (overlays and the roots file); the options below add to it
+    let mut extra_roots: Vec<(u32, bool)> = Vec::new();
+    {
+        let mut it = args.iter();
+        while let Some(a) = it.next() {
+            if a == "--profile" {
+                let f = it.next().unwrap_or_else(|| usage());
+                let p = gba_recomp::profile::load(f).unwrap_or_else(|e| {
+                    eprintln!("{e}");
+                    std::process::exit(1)
+                });
+                rom.overlays.extend(p.overlays);
+                extra_roots.extend(p.roots);
+            }
+        }
+    }
     // --overlay RAM:ROM:LEN (hex, repeatable): a block copied from the ROM to RAM at boot
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -36,7 +52,6 @@ fn main() {
         }
     }
     // --root ADDR[:t] (hex, repeatable): an entry point the flow cannot reach (an interrupt handler stored in RAM, a callback table...)
-    let mut extra_roots: Vec<(u32, bool)> = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
         if a == "--root" {

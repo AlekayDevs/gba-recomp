@@ -111,8 +111,7 @@ Detalle en `..\minishcap-recomp\plan.md`. Resumen:
 
 **Pendientes (por orden):**
 1. ~~Cerrar el desvío de `sp`~~ (hecho).
-2. Las raíces dinámicas (33 direcciones únicas) están en `..\minishcap-recomp\games\dynamic_roots.txt` (sin commit en ese repo): hacer que el motor lea el perfil `games/<id>.toml` y las incluya.
-oots.txt`, ~60 direcciones) a `..\minishcap-recomp\games\` y hacer que el motor lea el perfil `games/<id>.toml`.
+2. ~~Perfil `games/<id>.toml`~~ (hecho: `--profile`, `src/profile.rs`; lee `[[overlay]]` y `[roots] file`; el perfil de Minish Cap tiene las 41 raíces).
 3. Sonido (M4A, FIFO y PSG); hoy el mezclador corre pero no se oye nada.
 4. Estados guardados; comprobar `BgAffineSet`/`ObjAffineSet` (escritas de memoria, sin verificar); resto de la BIOS.
 5. `scan` que falle si algo a subir contiene bytes de la ROM, antes de cualquier push. Nada se ha subido en esta sesión.
