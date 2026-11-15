@@ -115,4 +115,11 @@ Detalle en `..\minishcap-recomp\plan.md`. Resumen:
 3. Sonido: hecho el motor (`runtime/gba_apu.c`: FIFO A/B por temporizador + DMA 1/2, PSG de 4 canales, 32768 Hz estéreo; SDL en `play.c`, `--wav` en `run_headless`). Con Minish Cap suena música (pico 14 764, pasajes de silencio coherentes con el juego). **Sin oír todavía**: falta que alguien lo escuche (tono, ritmo, clics) y afinar mezcla/volumen; el PSG no se ha ejercitado (el juego solo usa DS A). Posible mejora: resamplear mejor que el mantenimiento de orden cero.
 4. ~~Estados guardados~~ (hecho). BIOS: revisada contra las 12 llamadas que usa Minish Cap (0,1,3,5,6,8,B,E,F,11,12,19); `runtime/bios_test.c` (59 comprobaciones: Div, Sqrt, ArcTan2, Obj/BgAffineSet, CpuSet/FastSet, LZ77, RL, BitUnPack, Huffman; compilar como dice su cabecera). `SoftReset` reinicia el juego (setjmp en los mains), `SoundBias` fija el sesgo, nuevas `BitUnPack` y `HuffUnComp`. Falta de la BIOS: `ArcTan` (aproximación, no el polinomio del BIOS), sonido por SWI 0x1A-0x1F, MultiBoot.
 5. ~~`scan`~~ (hecho: `tools/scan.py`, hook con `tools/install_hooks.sh`; limpio sobre todo el historial).
-6. Limpiar los `.ppm` y `dump_*.bin` que cayeron en la raíz del repo (ahora en `.gitignore`).
+6. ~~Limpiar los `.ppm` y `dump_*.bin` de la raíz~~ (no había nada; están en `.gitignore`).
+7. **Pendiente, a retomar (lo hace el usuario a mano; no se puede comprobar desde aquí):**
+   - Escuchar el sonido con `play.exe` (tono, ritmo, clics, volumen) y ajustar la mezcla en `runtime/gba_apu.c` si hace falta; el remuestreo es de orden cero y es lo primero a mejorar si suena áspero.
+   - Probar F5/F8/1-9 (estados guardados) en la ventana.
+   - Jugar más tiempo con la ventana para hallar raíces dinámicas nuevas (`tools/complete.sh`; actualizar `..\minishcap-recomp\games\dynamic_roots.txt`) y fallos de PPU (p. ej. la línea fina horizontal a la izquierda en el fotograma ~8500).
+   - Idea: un único script que empaquete y construya `play.exe` para probar.
+   - Commit en `..\minishcap-recomp` del perfil (`[roots]`, `[resume]`) y de `dynamic_roots.txt`, hoy sin subir.
+   - Nada se ha subido (push) desde esta sesión; el hook `pre-push` hay que instalarlo en cada clon (`sh tools/install_hooks.sh`).
