@@ -95,7 +95,11 @@ Detalle en `..\minishcap-recomp\plan.md`. Resumen:
 
 **Causa del desvío de `sp` (cerrada):** un `bx rN` cuyo valor es la dirección de retorno de la función (tras `push {r2,lr}` ... `pop {r2,r3}` ... `bx r3`, en `0x0800429E`) se emitía como `rt_dispatch`, que ejecutaba la continuación del llamador y luego volvía a ejecutarla (+4 en `sp` por llamada). Ahora cada función guarda `lr0 = r14` al entrar y el salto indirecto hace `if (rN == lr0) return;` antes de despachar (`src/gen.rs`).
 
-**Siguiente:** seguir jugando para hallar raíces dinámicas nuevas (`tools/complete.sh`, 5 más esta vez; `dynamic_roots.txt` ya está actualizado); a los ~8000 fotogramas, tras pulsar derecha, `DISPCNT=0140`/`IE=0088` (¿transición de zona o parada?): comprobar.
+**Segundo desvío (cerrado):** la rutina de entidades de la IWRAM (`0x03005F24`, resume del bucle de `0x03005F40`) restaura el `sp` guardado del bucle (`ldr sp,[r11,#0xC]`) y sigue el bucle: es un `longjmp` que descarta los marcos de las funciones intermedias (+64 bytes). Sin tratarlo, `IntrMain` restauraba `IE=D3EF` y el juego se quedaba parado a los ~7270 fotogramas al andar. Ahora, tras cada llamada que devuelve con otro `sp`, si `r13 >= sp` de entrada de la función, esa función también retorna (`RT_UNWIND` en `runtime/gba_rt.h`, siempre activo). `rt_sp_mismatch` sigue listando esos 33 `longjmp` (esperado).
+
+**Estado ahora:** 9000 fotogramas con partida nueva: intro, mundo y andar, sin congelarse (`IE=2005`).
+
+**Siguiente:** jugar más tiempo y a mano (`tools/build_play.sh`) para hallar raíces dinámicas y fallos de PPU; después perfil `.toml`, sonido y estados guardados.
 
 **Herramientas de diagnóstico ya hechas:**
 - `-DRT_TRACE` al compilar el C generado: `RT_CHK_BEFORE/AFTER` comprueban que cada llamada devuelve con el mismo `sp`; `rt_sp_mismatch` (en un `trace.c` propio, ver abajo) agrupa por sitio de llamada/destino/variación. `RT_ENTER` da la traza de entradas de función. Sin `-DRT_TRACE` los macros no generan código.

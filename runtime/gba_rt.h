@@ -29,21 +29,25 @@ extern int rt_budget;
 void rt_yield(Cpu *c);
 /* a backward branch at `a`: when it has run long enough, time passes (and the site is noted for diagnostics) */
 /* optional call trace (compile with -DRT_TRACE and provide rt_enter): called at the start of every translated function */
+/* non-local exit: a callee that leaves r13 at or above the one this function started with has discarded this
+   frame (the game's entity loop restores a saved sp, like longjmp), so this function returns too */
+#define RT_UNWIND() do { if (r13 >= sp0_) { STORE(); return; } } while (0)
 #ifdef RT_TRACE
 void rt_enter(Cpu *c, u32 addr);
 #define RT_ENTER(a) rt_enter(c, (a))
 /* the call contract: after a call returns, r13 is what it was before the call */
 void rt_sp_mismatch(Cpu *c, u32 site, u32 target, u32 before, u32 after);
-#define RT_DECL() u32 sp_chk_, tg_chk_
+#define RT_DECL() u32 sp_chk_, tg_chk_, sp0_ = r13; (void)sp0_
 #define RT_TG(x) (tg_chk_ = (x))
 #define RT_CHK_BEFORE() (sp_chk_ = r13)
-#define RT_CHK_AFTER(s, t) do { if (r13 != sp_chk_) rt_sp_mismatch(c, (s), (t), sp_chk_, r13); } while (0)
+#define RT_CHK_AFTER(s, t) do { if (r13 != sp_chk_) { rt_sp_mismatch(c, (s), (t), sp_chk_, r13); RT_UNWIND(); } } while (0)
 #else
 #define RT_ENTER(a) ((void)0)
-#define RT_DECL() ((void)0)
+#define RT_DECL() u32 sp_chk_, sp0_ = r13; (void)sp0_; (void)sp_chk_
 #define RT_TG(x) ((void)0)
-#define RT_CHK_BEFORE() ((void)0)
-#define RT_CHK_AFTER(s, t) ((void)0)
+#define RT_TG(x) ((void)0)
+#define RT_CHK_BEFORE() (sp_chk_ = r13)
+#define RT_CHK_AFTER(s, t) do { if (r13 != sp_chk_) RT_UNWIND(); } while (0)
 #endif
 #define YIELD_AT(a) do { if (--rt_budget < 0) { rt_site = (a); STORE(); rt_yield(c); RELOAD(); } } while (0)
 #define YIELD() do { if (--rt_budget < 0) { STORE(); rt_yield(c); RELOAD(); } } while (0)

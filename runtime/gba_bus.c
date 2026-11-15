@@ -32,6 +32,9 @@ static u32 io_read16(u32 off) {
 static void io_write16(u32 off, u32 v) {
     off &= 0x3FE;
     v &= 0xFFFF;
+#ifdef RT_TRACE_IE
+    if (off == IO_IE) rt_trace_ie(v);
+#endif
     switch (off) {
     case IO_DISPSTAT: io_set16(off, (io_get16(off) & 7) | (v & ~7u)); return; /* bits 0-2 are status */
     case IO_VCOUNT: case IO_KEYINPUT: return;
