@@ -60,3 +60,6 @@ u32 eeprom_read_bit(void) {
     if (p >= 64) return 1;
     return (eeprom[read_block * 8 + p / 8] >> (7 - p % 8)) & 1;
 }
+
+/* only the read position: the contents of the EEPROM belong to the game's save, not to the state */
+void save_state_io(StateIO *s) { ST(s, read_block); ST(s, read_pos); }

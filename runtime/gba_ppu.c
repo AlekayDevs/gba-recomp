@@ -279,3 +279,5 @@ int ppu_write_ppm(const char *path) {
     fclose(f);
     return 1;
 }
+
+void ppu_state(StateIO *s) { ST(s, aff_x); ST(s, aff_y); }

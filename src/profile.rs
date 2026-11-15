@@ -8,6 +8,8 @@ use std::path::Path;
 pub struct Profile {
     pub overlays: Vec<Overlay>,
     pub roots: Vec<(u32, bool)>,
+    /// where save states are taken: an address of the main loop of the game (Thumb)
+    pub resume: Option<u32>,
 }
 
 fn hex(s: &str) -> Result<u32, String> {
@@ -55,6 +57,7 @@ pub fn parse(text: &str, dir: &Path) -> Result<Profile, String> {
             ("[[overlay]]", "ram") => ram = Some(hex(v)?),
             ("[[overlay]]", "rom") => rom = Some(hex(v)?),
             ("[[overlay]]", "len") => len = Some(hex(v)?),
+            ("[resume]", "address") => p.resume = Some(hex(v)?),
             ("[roots]", "file") => {
                 let f = dir.join(v);
                 let t = std::fs::read_to_string(&f).map_err(|e| format!("{}: {e}", f.display()))?;

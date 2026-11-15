@@ -26,6 +26,7 @@ fn main() {
     };
     // --profile FILE: games/<id>.toml (overlays and the roots file); the options below add to it
     let mut extra_roots: Vec<(u32, bool)> = Vec::new();
+    let mut resume: Option<u32> = None; // --resume ADDR or [resume] of the profile: the place for save states
     {
         let mut it = args.iter();
         while let Some(a) = it.next() {
@@ -36,6 +37,7 @@ fn main() {
                     std::process::exit(1)
                 });
                 rom.overlays.extend(p.overlays);
+                if p.resume.is_some() { resume = p.resume; }
                 extra_roots.extend(p.roots);
             }
         }
@@ -54,6 +56,9 @@ fn main() {
     // --root ADDR[:t] (hex, repeatable): an entry point the flow cannot reach (an interrupt handler stored in RAM, a callback table...)
     let mut it = args.iter();
     while let Some(a) = it.next() {
+        if a == "--resume" {
+            resume = Some(parse_addr(it.next().unwrap_or_else(|| usage())));
+        }
         if a == "--root" {
             let v = it.next().unwrap_or_else(|| usage());
             let (addr, t) = match v.split_once(':') { Some((a, k)) => (a, k == "t"), None => (v.as_str(), false) };
@@ -126,7 +131,7 @@ fn main() {
                 let funcs: Vec<u32> = d.functions.iter().copied().filter(|a| d.code.contains_key(a)).collect();
                 let mut bodies = Vec::new();
                 for &f in &funcs {
-                    match gba_recomp::gen::function(&rom, &d, f, &mut calls) {
+                    match gba_recomp::gen::function(&rom, &d, f, &mut calls, resume) {
                         Ok(b) => bodies.push((f, b)),
                         Err(e) => {
                             let k = e.split(" at 0x").next().unwrap_or(&e).to_string();

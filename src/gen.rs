@@ -24,7 +24,7 @@ pub fn name(addr: u32) -> String {
 
 /// Generates the C function at `entry`, or says why it cannot (an instruction or a jump the spike does not translate).
 /// `calls` receives the functions it calls.
-pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>) -> Result<String, String> {
+pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>, resume: Option<u32>) -> Result<String, String> {
     if d.code.get(&entry).is_some_and(|c| !c.0) {
         return crate::gen_arm::function(rom, d, entry, calls);
     }
@@ -127,6 +127,10 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
     for (&pc, &(h, next)) in &insns {
         if targets.contains(&pc) {
             writeln!(o, "L_{pc:08X}:;").unwrap();
+        }
+        // the one place where save states are taken and loaded (the main loop of the game): the whole CPU is in registers here
+        if resume == Some(pc) {
+            writeln!(o, "    if (rt_state_req) {{ STORE(); rt_state_point(c); RELOAD(); }}").unwrap();
         }
         let i = thumb::decode(h, next, pc);
         let h = h as u32;

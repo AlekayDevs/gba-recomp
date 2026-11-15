@@ -2,6 +2,7 @@
 #ifndef GBA_SYS_H
 #define GBA_SYS_H
 #include "gba_rt.h"
+#include <stdio.h>
 
 #define IO_DISPCNT 0x000
 #define IO_DISPSTAT 0x004
@@ -39,6 +40,15 @@ extern void (*sys_frame_hook)(u32 frame);
 int ppu_write_ppm(const char *path);
 extern uint32_t ppu_frame[160][240];
 extern u32 sys_keys; /* pressed keys, active high (bit 0 = A) */
+
+/* state.c: save states, taken and loaded where the generated code calls rt_state_point (the profile's [resume] address) */
+typedef struct { FILE *f; int save, err; } StateIO;
+void st_blob(StateIO *s, void *p, size_t n);
+#define ST(s, x) st_blob((s), &(x), sizeof(x))
+extern volatile int rt_state_req;  /* set to 1 (save) or 2 (load) with rt_state_path; done at the next pass of the main loop */
+extern char rt_state_path[512];
+extern const char *rt_state_msg;
+void rt_state_point(Cpu *c);
 
 /* apu.c */
 extern int16_t apu_out[];

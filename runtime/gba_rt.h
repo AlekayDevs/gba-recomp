@@ -27,6 +27,9 @@ void rt_msr_spsr(Cpu *c, u32 fields, u32 v);
 /* time: a backward branch is a place where time can pass and interrupts can be taken */
 extern int rt_budget;
 void rt_yield(Cpu *c);
+/* save states: the generated code of the profile's [resume] address calls rt_state_point when a request is pending */
+extern volatile int rt_state_req;
+void rt_state_point(Cpu *c);
 /* a backward branch at `a`: when it has run long enough, time passes (and the site is noted for diagnostics) */
 /* optional call trace (compile with -DRT_TRACE and provide rt_enter): called at the start of every translated function */
 /* non-local exit: a callee that leaves r13 at or above the one this function started with has discarded this

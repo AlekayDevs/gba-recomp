@@ -1,6 +1,7 @@
 /* Plays the recompiled game in a window (SDL2): video, keyboard and game controller, frame pacing at 59.7275 Hz.
      play <rom.gba> [--scale N] [--fullscreen] [--nolimit]
    Keys: arrows, X = A, Z = B, A = L, S = R, Enter = Start, Backspace = Select; Tab (held) = fast forward; F11 = full screen;
+   F5 = save state, F8 = load state (slot 1..9 with the number keys; <rom>.sN; done at the next pass of the game's main loop);
    F12 = screenshot (shot-N.ppm); Esc = quit. Controller: B/A = A/B, shoulders = L/R, Start, Back = Select, D-pad or left stick. */
 #include "gba_sys.h"
 #define SDL_MAIN_HANDLED
@@ -16,7 +17,8 @@ static SDL_Renderer *ren;
 static SDL_Texture *tex;
 static SDL_GameController *pad;
 static SDL_AudioDeviceID audio;
-static int limit = 1, shots;
+static int limit = 1, shots, slot = 1;
+static char state_base[512];
 static Uint64 next_tick, freq;
 
 void sys_report(void) {} /* only the headless runner reports */
@@ -60,6 +62,14 @@ static void on_frame(u32 frame) {
             Uint32 f = SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP;
             SDL_SetWindowFullscreen(win, f ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
         }
+        if (e.type == SDL_KEYDOWN && e.key.keysym.sym >= SDLK_1 && e.key.keysym.sym <= SDLK_9) {
+            slot = e.key.keysym.sym - SDLK_0;
+            char t[64]; snprintf(t, sizeof t, "gba-recomp - slot %d", slot); SDL_SetWindowTitle(win, t);
+        }
+        if (e.type == SDL_KEYDOWN && (e.key.keysym.sym == SDLK_F5 || e.key.keysym.sym == SDLK_F8) && !rt_state_req) {
+            snprintf(rt_state_path, sizeof rt_state_path, "%s.s%d", state_base, slot);
+            rt_state_req = e.key.keysym.sym == SDLK_F5 ? 1 : 2;
+        }
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_F12) {
             char name[64];
             snprintf(name, sizeof name, "shot-%d.ppm", ++shots);
@@ -67,6 +77,11 @@ static void on_frame(u32 frame) {
         }
         if (e.type == SDL_CONTROLLERDEVICEADDED && !pad) pad = SDL_GameControllerOpen(e.cdevice.which);
         if (e.type == SDL_CONTROLLERDEVICEREMOVED && pad && e.cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad))) { SDL_GameControllerClose(pad); pad = NULL; }
+    }
+    if (rt_state_msg) {
+        char t[96]; snprintf(t, sizeof t, "gba-recomp - slot %d: %s", slot, rt_state_msg);
+        SDL_SetWindowTitle(win, t); printf("slot %d: %s
+", slot, rt_state_msg); rt_state_msg = NULL;
     }
     /* sound: the samples of this frame go to the device; when it is far ahead (fast forward, a pause) they are dropped */
     if (audio) {
@@ -139,6 +154,7 @@ int main(int argc, char **argv) {
         snprintf(sav, sizeof sav, "%s", argv[1]);
         char *dot = strrchr(sav, '.');
         if (dot && (!strchr(dot, '/')) && (!strchr(dot, 92))) *dot = 0;
+        snprintf(state_base, sizeof state_base, "%s", sav);
         strncat(sav, ".sav", sizeof sav - strlen(sav) - 1);
         save_init(sav);
     }

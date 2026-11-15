@@ -211,3 +211,9 @@ void rt_yield(Cpu *c) {
     rt_budget = 300;
     sys_step_line(c, 1);
 }
+
+void sys_state(StateIO *s) {
+    ST(s, dma_src); ST(s, dma_dst); ST(s, dma_cnt); ST(s, timer_cnt); ST(s, timer_acc);
+    ST(s, cur_line); ST(s, poll_cycles); ST(s, rt_budget);
+    if (!s->save) in_irq = 0;
+}

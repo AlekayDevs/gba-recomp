@@ -222,3 +222,8 @@ void apu_advance(u32 cycles) {
     render_until(clock_now + cycles);
     clock_now += cycles;
 }
+
+void apu_state(StateIO *s) {
+    ST(s, fifo); ST(s, sq); ST(s, wv); ST(s, nz); ST(s, wave_bank); ST(s, len_acc); ST(s, dc_x); ST(s, dc_y);
+    ST(s, clock_now); ST(s, host_clock);
+}

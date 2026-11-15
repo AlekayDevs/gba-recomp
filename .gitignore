@@ -11,3 +11,4 @@ saves/
 *.ppm
 dump_*.bin
 *.wav
+*.state

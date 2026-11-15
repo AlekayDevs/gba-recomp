@@ -50,7 +50,7 @@ En orden de aparición para llegar al título y a la partida:
 - [x] **Guardado**: EEPROM de 512 B o 8 KiB (se detecta por la longitud de la primera petición DMA; *Minish Cap* usa 8 KiB, direcciones de 14 bits); `runtime/gba_save.c` escribe `<rom>.sav` tras cada escritura. Las lecturas directas de la CPU en `0x0D000000` devuelven el estado de la EEPROM (el juego las usa para esperar el fin de la escritura). Comprobado: se crea una partida («AAAAAA»), se guarda y reaparece al arrancar de nuevo.
 - [x] **Entrada** (hecha en `runtime/play.c`: teclado y mando SDL2): teclado y mando (reutilizar el mapeo de snes-recomp, que ya trae mando, táctil y Android); `KEYINPUT`, `KEYCNT`.
 - [~] **Ventana, vídeo y audio**: ventana y vídeo hechos (`runtime/play.c`, `tools/build_play.sh`: SDL2, escalado entero, 59,7275 Hz, Tab = avance rápido, F11, F12 = captura); falta el audio y la pantalla ancha.
-- [ ] **Estados guardados** y rebobinado: definir el punto de reanudación (como `[resume]` en alttp) y qué estado se guarda (registros de la CPU, EWRAM, IWRAM, VRAM, paleta, OAM, E/S, temporizadores, DMA, estado del sonido).
+- [x] **Estados guardados**: `runtime/gba_state.c`. Solo en el bucle principal (`[resume]` del perfil; Minish Cap `08055EC8`), donde el generador emite `if (rt_state_req) {STORE(); rt_state_point(c); RELOAD();}`. Guarda `Cpu`, EWRAM, IWRAM, paleta, VRAM, OAM, E/S y el estado de sys, PPU, APU y lectura de EEPROM; no la EEPROM (la partida del juego no se deshace). Comprobado: cargar un estado de otra línea temporal y correr 99 fotogramas da los mismos hashes de VRAM, paleta, OAM, EWRAM e IWRAM que la ejecución original. `play`: F5 guarda, F8 carga, 1-9 ranura (`<rom>.sN`); `run_headless --save-state/--load-state FRAME:fichero`. Falta: rebobinado, miniaturas, probar las teclas a mano.
 
 ## 4. Herramientas, pruebas y empaquetado
 
@@ -113,6 +113,6 @@ Detalle en `..\minishcap-recomp\plan.md`. Resumen:
 1. ~~Cerrar el desvío de `sp`~~ (hecho).
 2. ~~Perfil `games/<id>.toml`~~ (hecho: `--profile`, `src/profile.rs`; lee `[[overlay]]` y `[roots] file`; el perfil de Minish Cap tiene las 41 raíces).
 3. Sonido: hecho el motor (`runtime/gba_apu.c`: FIFO A/B por temporizador + DMA 1/2, PSG de 4 canales, 32768 Hz estéreo; SDL en `play.c`, `--wav` en `run_headless`). Con Minish Cap suena música (pico 14 764, pasajes de silencio coherentes con el juego). **Sin oír todavía**: falta que alguien lo escuche (tono, ritmo, clics) y afinar mezcla/volumen; el PSG no se ha ejercitado (el juego solo usa DS A). Posible mejora: resamplear mejor que el mantenimiento de orden cero.
-4. Estados guardados; comprobar `BgAffineSet`/`ObjAffineSet` (escritas de memoria, sin verificar); resto de la BIOS.
+4. Estados guardados: hecho (ver arriba); queda comprobar `BgAffineSet`/`ObjAffineSet` (escritas de memoria, sin verificar) y el resto de la BIOS.
 5. ~~`scan`~~ (hecho: `tools/scan.py`, hook con `tools/install_hooks.sh`; limpio sobre todo el historial).
 6. Limpiar los `.ppm` y `dump_*.bin` que cayeron en la raíz del repo (ahora en `.gitignore`).

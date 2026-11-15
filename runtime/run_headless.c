@@ -73,8 +73,14 @@ static void dump_video(void) {
     printf("visible sprites %d\n", n);
 }
 
+static struct { u32 frame; int what; char path[260]; } states[8];
+static int n_states;
+
 static void on_frame(u32 f) {
     u32 k = 0;
+    for (int i = 0; i < n_states; i++) if (states[i].frame == f) { snprintf(rt_state_path, sizeof rt_state_path, "%s", states[i].path); rt_state_req = states[i].what; }
+    if (rt_state_msg) { printf("frame %u: %s
+", f, rt_state_msg); rt_state_msg = NULL; }
     for (u32 i = 0; i < apu_n * 2; i++) { u32 a = apu_out[i] < 0 ? -apu_out[i] : apu_out[i]; if (a > audio_peak) audio_peak = a; }
     if (wav) fwrite(apu_out, 4, apu_n, wav);
     wav_frames += apu_n; apu_n = 0;
@@ -103,6 +109,12 @@ int main(int argc, char **argv) {
     fclose(f);
     sys_max_frames = 60;
     for (int i = 2; i < argc; i++) {
+        if ((!strcmp(argv[i], "--save-state") || !strcmp(argv[i], "--load-state")) && i + 1 < argc && n_states < 8) {
+            states[n_states].what = argv[i][2] == 's' ? 1 : 2;
+            if (sscanf(argv[++i], "%u:%259s", &states[n_states].frame, states[n_states].path) != 2) { fprintf(stderr, "bad --save-state/--load-state (FRAME:file)
+"); return 2; }
+            n_states++; continue;
+        }
         if (!strcmp(argv[i], "--wav") && i + 1 < argc) { wav_open(argv[++i]); continue; }
         if (!strcmp(argv[i], "--dump-at") && i + 1 < argc) { dump_frame = (u32)atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--press") && i + 1 < argc) {
