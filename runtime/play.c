@@ -4,6 +4,7 @@
    F5 = save state, F8 = load state (slot 1..9 with the number keys; <rom>.sN; done at the next pass of the game's main loop);
    F12 = screenshot (shot-N.ppm); Esc = quit. Controller: B/A = A/B, shoulders = L/R, Start, Back = Select, D-pad or left stick. */
 #include "gba_sys.h"
+#include <setjmp.h>
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <stdio.h>
@@ -161,6 +162,8 @@ int main(int argc, char **argv) {
     sys_max_frames = 0;
     sys_frame_hook = on_frame;
     static Cpu cpu;
+    rt_reset_armed = 1;
+    setjmp(rt_reset_jb); /* SoftReset comes back here */
     sys_init(&cpu);
     rt_entry(&cpu);
     return 0;

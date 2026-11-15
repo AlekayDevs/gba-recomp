@@ -2,6 +2,7 @@
      run <rom.gba> [frames] [--press KEY@FRAME[+LEN]]... [--shot file.ppm] [--shot-at FRAME:file.ppm]... [--dump-at FRAME]
    Keys: a b select start right left up down r l. */
 #include "gba_sys.h"
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -142,6 +143,8 @@ int main(int argc, char **argv) {
     }
     sys_frame_hook = on_frame;
     static Cpu cpu;
+    rt_reset_armed = 1;
+    setjmp(rt_reset_jb); /* SoftReset comes back here */
     sys_init(&cpu);
     rt_entry(&cpu);
     fprintf(stderr, "the entry point returned\n");

@@ -5,6 +5,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <setjmp.h>
+
+/* SoftReset: the mains arm this (setjmp) so that the game restarts from the entry point instead of the process ending */
+jmp_buf rt_reset_jb;
+int rt_reset_armed;
 
 #define BIOS_IF 0x03007FF8
 
@@ -81,6 +86,49 @@ static void diff_unfilter(Cpu *c, int bits16, int vram) {
     free(out);
 }
 
+/* BitUnPack: r0 source, r1 destination, r2 -> {u16 source length in bytes, u8 source unit width, u8 destination unit width, u32 offset (bit 31: add it to zero units too)} */
+static void bit_unpack(Cpu *c) {
+    u32 src = c->r[0], dst = c->r[1], info = c->r[2];
+    u32 len = rd16(info), sw = rd8(info + 2), dw = rd8(info + 3), off = rd32(info + 4);
+    u32 zero = off >> 31; off &= 0x7FFFFFFF;
+    u32 acc = 0, sh = 0, mask = sw >= 32 ? 0xFFFFFFFFu : (1u << sw) - 1;
+    if (!sw || !dw) return;
+    for (u32 i = 0; i < len; i++) {
+        u32 b = rd8(src + i);
+        for (u32 k = 0; k < 8; k += sw) {
+            u32 d = (b >> k) & mask;
+            if (d || zero) d += off;
+            acc |= dw >= 32 ? d : (d << sh);
+            sh += dw;
+            if (sh >= 32) { wr32(dst, acc); dst += 4; acc = 0; sh = 0; }
+        }
+    }
+}
+
+/* HuffUnComp: header (bits 0-3 symbol width 4 or 8, bits 8-31 output size), tree size byte, tree, then the bit stream in words (MSB first) */
+static void huff(Cpu *c) {
+    u32 src = c->r[0], dst = c->r[1];
+    u32 hdr = rd32(src), bits = hdr & 15, size = hdr >> 8;
+    u32 tree = src + 4, root = tree + 1, p = tree + (rd8(tree) + 1) * 2;
+    uint8_t *out = calloc(size + 8, 1);
+    u32 n = 0, node = root, half = 0;
+    while (n < size) {
+        u32 word = rd32(p); p += 4;
+        for (int bit = 31; bit >= 0 && n < size; bit--) {
+            u32 nv = rd8(node), b = (word >> bit) & 1;
+            u32 next = (node & ~1u) + (nv & 0x3F) * 2 + 2 + b;
+            if (b ? (nv & 0x40) : (nv & 0x80)) {
+                u32 d = rd8(next);
+                if (bits == 8) out[n++] = (uint8_t)d;
+                else { if (half) out[n++] |= (uint8_t)(d << 4); else out[n] = (uint8_t)(d & 15); half ^= 1; }
+                node = root;
+            } else node = next;
+        }
+    }
+    for (u32 i = 0; i < size; i += 4) wr32(dst + i, out[i] | (out[i + 1] << 8) | (out[i + 2] << 16) | ((u32)out[i + 3] << 24));
+    free(out);
+}
+
 static double cos_t(u32 a) { return cos((double)(a & 0xFF) * 3.14159265358979323846 / 128.0); }
 static double sin_t(u32 a) { return sin((double)(a & 0xFF) * 3.14159265358979323846 / 128.0); }
 
@@ -131,7 +179,11 @@ static void intr_wait(Cpu *c, u32 discard, u32 mask) {
 void bios_swi(Cpu *c, u32 n) {
     u32 *r = c->r;
     switch (n) {
-    case 0x00: fprintf(stderr, "SoftReset\n"); exit(3);
+    case 0x00: /* SoftReset: the BIOS clears the last 0x200 bytes of IWRAM and starts the ROM again */
+        memset(rt_iwram + sizeof rt_iwram - 0x200, 0, 0x200);
+        if (rt_reset_armed) longjmp(rt_reset_jb, 1);
+        fprintf(stderr, "SoftReset\n");
+        exit(3);
     case 0x01: { /* RegisterRamReset */
         u32 f = r[0];
         if (f & 1) memset(rt_ewram, 0, sizeof rt_ewram);
@@ -178,7 +230,9 @@ void bios_swi(Cpu *c, u32 n) {
     case 0x16: diff_unfilter(c, 0, 0); break;
     case 0x17: diff_unfilter(c, 0, 1); break;
     case 0x18: diff_unfilter(c, 1, 1); break;
-    case 0x19: break; /* SoundBias: the level changes gradually on the real BIOS; nothing to do without audio */
+    case 0x10: bit_unpack(c); break;
+    case 0x13: huff(c); break;
+    case 0x19: io_set16(IO_SOUNDBIAS, (io_get16(IO_SOUNDBIAS) & ~0x3FEu) | (r[0] ? 0x200 : 0)); break; /* SoundBias: the real BIOS ramps the level; here it is set at once */
     default: fprintf(stderr, "BIOS call 0x%02X is not implemented (r0=%08X r1=%08X r2=%08X)\n", n, r[0], r[1], r[2]); break;
     }
 }

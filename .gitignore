@@ -12,3 +12,4 @@ saves/
 dump_*.bin
 *.wav
 *.state
+*.exe

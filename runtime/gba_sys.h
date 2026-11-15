@@ -65,5 +65,8 @@ void eeprom_write_bits(const uint8_t *bits, u32 n);
 u32 eeprom_read_bit(void);
 
 /* bios.c */
+#include <setjmp.h>
+extern jmp_buf rt_reset_jb;
+extern int rt_reset_armed;
 void bios_swi(Cpu *c, u32 n);
 #endif

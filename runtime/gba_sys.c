@@ -17,6 +17,7 @@ void (*sys_frame_hook)(u32 frame); /* called when a frame ends (the headless run
 
 void sys_init(Cpu *c) {
     cpu_ptr = c;
+    in_irq = 0;
     memset(c, 0, sizeof *c);
     c->cpsr_c = 0x1F; /* System mode, as the BIOS leaves it when it jumps to the ROM */
     c->r[13] = 0x03007F00;
