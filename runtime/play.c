@@ -15,6 +15,7 @@ static SDL_Window *win;
 static SDL_Renderer *ren;
 static SDL_Texture *tex;
 static SDL_GameController *pad;
+static SDL_AudioDeviceID audio;
 static int limit = 1, shots;
 static Uint64 next_tick, freq;
 
@@ -67,6 +68,11 @@ static void on_frame(u32 frame) {
         if (e.type == SDL_CONTROLLERDEVICEADDED && !pad) pad = SDL_GameControllerOpen(e.cdevice.which);
         if (e.type == SDL_CONTROLLERDEVICEREMOVED && pad && e.cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad))) { SDL_GameControllerClose(pad); pad = NULL; }
     }
+    /* sound: the samples of this frame go to the device; when it is far ahead (fast forward, a pause) they are dropped */
+    if (audio) {
+        if (SDL_GetQueuedAudioSize(audio) < 32768 * 4 / 5) SDL_QueueAudio(audio, apu_out, apu_n * 4);
+    }
+    apu_n = 0;
     sys_keys = key_state();
     SDL_UpdateTexture(tex, NULL, ppu_frame, 240 * 4);
     SDL_RenderClear(ren);
@@ -107,7 +113,7 @@ int main(int argc, char **argv) {
     if (fread(rt_rom, 1, rt_rom_len, f) != rt_rom_len) return 1;
     fclose(f);
 
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     win = SDL_CreateWindow("gba-recomp", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 240 * scale, 160 * scale,
                            SDL_WINDOW_RESIZABLE | (full ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
     ren = win ? SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED) : NULL;
@@ -116,6 +122,14 @@ int main(int argc, char **argv) {
     SDL_RenderSetLogicalSize(ren, 240, 160);
     SDL_RenderSetIntegerScale(ren, SDL_TRUE);
     tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, 240, 160);
+    {
+        SDL_AudioSpec want, have;
+        SDL_zero(want);
+        want.freq = 32768; want.format = AUDIO_S16SYS; want.channels = 2; want.samples = 1024;
+        audio = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+        if (audio) SDL_PauseAudioDevice(audio, 0); else fprintf(stderr, "no audio: %s
+", SDL_GetError());
+    }
     freq = SDL_GetPerformanceFrequency();
     for (int i = 0; i < SDL_NumJoysticks(); i++) if (SDL_IsGameController(i)) { pad = SDL_GameControllerOpen(i); break; }
 

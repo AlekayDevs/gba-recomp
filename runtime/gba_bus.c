@@ -35,6 +35,7 @@ static void io_write16(u32 off, u32 v) {
 #ifdef RT_TRACE_IE
     if (off == IO_IE) rt_trace_ie(v);
 #endif
+    if (off >= 0xA0 && off < 0xA8) { apu_fifo_write(off, v, 2); return; }
     switch (off) {
     case IO_DISPSTAT: io_set16(off, (io_get16(off) & 7) | (v & ~7u)); return; /* bits 0-2 are status */
     case IO_VCOUNT: case IO_KEYINPUT: return;
@@ -60,6 +61,7 @@ static void io_write16(u32 off, u32 v) {
         return;
     }
     io_set16(off, v);
+    if (off >= 0x60 && off < 0xA0) apu_write16(off, v);
 }
 
 u32 rd8(u32 a) {
@@ -119,6 +121,7 @@ void wr8(u32 a, u32 v) {
     case 0x03: rt_iwram[a & 0x7FFF] = (uint8_t)v; break;
     case 0x04: {
         if ((a & 0xFFFFFF) >= 0x400) break;
+        if ((a & 0xFFFFFF) >= 0xA0 && (a & 0xFFFFFF) < 0xA8) { apu_fifo_write(a & 0xFFFFFF, v, 1); break; }
         u32 h = a & ~1u, cur = io_get16(h & 0x3FE);
         /* the 16-bit register with the byte replaced; IF and the like get the merged value, which is what a byte write means for them */
         if (h == (IO_IF)) { io_write16(h, (a & 1) ? v << 8 : v); break; }

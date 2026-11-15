@@ -40,6 +40,15 @@ int ppu_write_ppm(const char *path);
 extern uint32_t ppu_frame[160][240];
 extern u32 sys_keys; /* pressed keys, active high (bit 0 = A) */
 
+/* apu.c */
+extern int16_t apu_out[];
+extern u32 apu_n;                  /* stereo frames (32768 Hz) in apu_out; the consumer sets it back to 0 */
+void apu_fifo_write(u32 off, u32 v, int bytes);
+void apu_write16(u32 off, u32 v);
+void apu_timer_overflow(int t, u32 n, u32 cycles);
+void apu_advance(u32 cycles);
+void sys_dma_fifo(int x);
+
 /* save.c */
 void save_init(const char *path);
 void eeprom_write_bits(const uint8_t *bits, u32 n);

@@ -94,6 +94,15 @@ void sys_dma_enable(int ch) {
     if (((ctl >> 12) & 3) == 0) dma_run(ch);
 }
 
+/* the sound FIFO x (0 = A, 1 = B) is half empty: its DMA (1 or 2, "special" timing) brings 4 words */
+void sys_dma_fifo(int x) {
+    int ch = 1 + x;
+    u32 ctl = io_get16(IO_DMA0 + ch * 12 + 10);
+    if (!(ctl & 0x8000) || ((ctl >> 12) & 3) != 3) return;
+    for (int i = 0; i < 4; i++) { wr32(dma_dst[ch], rd32(dma_src[ch])); dma_src[ch] += 4; }
+    if (ctl & 0x4000) sys_raise(1u << (8 + ch));
+}
+
 /* run the channels that wait for this timing (1 = VBlank, 2 = HBlank) */
 static void dma_timing(int t) {
     for (int ch = 0; ch < 4; ch++) {
@@ -127,8 +136,10 @@ static void timers_advance(u32 cycles) {
         }
         timer_cnt[t] = v;
         if (over && (ctl & 0x40)) sys_raise(1u << (3 + t));
+        if (over && t < 2) apu_timer_overflow(t, over, cycles);
         carry = over;
     }
+    apu_advance(cycles);
 }
 
 /* ---- time: one scanline at a time ---- */

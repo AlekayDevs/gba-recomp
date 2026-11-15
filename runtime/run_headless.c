@@ -20,7 +20,28 @@ static u32 hash(const uint8_t *p, u32 n) {
     return h;
 }
 
+static FILE *wav;
+static u32 wav_frames, audio_peak;
+static void wav_u32(u32 v) { fwrite(&v, 4, 1, wav); }
+static void wav_open(const char *path) {
+    wav = fopen(path, "wb");
+    if (!wav) return;
+    fwrite("RIFF", 1, 4, wav); wav_u32(0); fwrite("WAVEfmt ", 1, 8, wav); wav_u32(16);
+    uint16_t fmt[2] = {1, 2}; fwrite(fmt, 2, 2, wav); wav_u32(32768); wav_u32(32768 * 4);
+    uint16_t bl[2] = {4, 16}; fwrite(bl, 2, 2, wav); fwrite("data", 1, 4, wav); wav_u32(0);
+}
+static void wav_close(void) {
+    if (!wav) return;
+    u32 n = wav_frames * 4, r = 36 + n;
+    fseek(wav, 4, SEEK_SET); fwrite(&r, 4, 1, wav);
+    fseek(wav, 40, SEEK_SET); fwrite(&n, 4, 1, wav);
+    fclose(wav); wav = NULL;
+}
+
 void sys_report(void) {
+    wav_close();
+    printf("audio: %u frames of 32768 Hz, peak %u
+", wav_frames, audio_peak);
     u32 pal = 0;
     for (int i = 0; i < 512; i++) if (rt_pal[i * 2] | rt_pal[i * 2 + 1]) pal++;
     printf("frames %u  DISPCNT %04X  BG0CNT %04X  IE %04X  IME %u\n", sys_frames, io_get16(IO_DISPCNT), io_get16(0x08), io_get16(IO_IE), io_get16(IO_IME));
@@ -54,6 +75,9 @@ static void dump_video(void) {
 
 static void on_frame(u32 f) {
     u32 k = 0;
+    for (u32 i = 0; i < apu_n * 2; i++) { u32 a = apu_out[i] < 0 ? -apu_out[i] : apu_out[i]; if (a > audio_peak) audio_peak = a; }
+    if (wav) fwrite(apu_out, 4, apu_n, wav);
+    wav_frames += apu_n; apu_n = 0;
     if (f == dump_frame) dump_video();
     for (int i = 0; i < n_presses; i++) if (f >= presses[i].from && f < presses[i].to) k |= presses[i].key;
     sys_keys = k;
@@ -79,6 +103,7 @@ int main(int argc, char **argv) {
     fclose(f);
     sys_max_frames = 60;
     for (int i = 2; i < argc; i++) {
+        if (!strcmp(argv[i], "--wav") && i + 1 < argc) { wav_open(argv[++i]); continue; }
         if (!strcmp(argv[i], "--dump-at") && i + 1 < argc) { dump_frame = (u32)atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--press") && i + 1 < argc) {
             char name[16]; u32 from, len = 4;
