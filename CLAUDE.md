@@ -41,7 +41,7 @@ Siguiente: lo anterior, la generación de C y el runtime (memoria, E/S, PPU, BIO
 
 ## Reglas
 
-- Nunca la ROM ni nada derivado (`*.gba`, `*.srm`, volcados, C generado, capturas con gráficos): están en `.gitignore`. Antes de cada push, comprobar que no se sube nada de la ROM (como el `scan` de snes-recomp; habrá que hacer uno equivalente).
+- Nunca la ROM ni nada derivado (`*.gba`, `*.srm`, volcados, C generado, capturas con gráficos): están en `.gitignore`. Antes de cada push se ejecuta `python tools/scan.py --history` (lo hace el hook `pre-push` que instala `sh tools/install_hooks.sh`): falla si hay ficheros `.gba/.sav/.wav...`, tablas de 64+ bytes en texto o 3+ trozos de 16 bytes de una ROM (busca en `--rom`, `../*/roms/*.gba` y `roms/`).
 - C/Rust original (clean-room). `mstan/gbarecomp`, `999sian/tmc` y `zeldaret/tmc` no declaran una licencia clara: solo se usan como referencia de ideas, no se copia su código.
 - Lo del juego va en el repositorio del juego; aquí solo lo general (traductor, PPU, sonido, runtime).
 - Documentación y mensajes de commit en español.

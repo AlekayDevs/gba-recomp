@@ -114,5 +114,5 @@ Detalle en `..\minishcap-recomp\plan.md`. Resumen:
 2. ~~Perfil `games/<id>.toml`~~ (hecho: `--profile`, `src/profile.rs`; lee `[[overlay]]` y `[roots] file`; el perfil de Minish Cap tiene las 41 raíces).
 3. Sonido: hecho el motor (`runtime/gba_apu.c`: FIFO A/B por temporizador + DMA 1/2, PSG de 4 canales, 32768 Hz estéreo; SDL en `play.c`, `--wav` en `run_headless`). Con Minish Cap suena música (pico 14 764, pasajes de silencio coherentes con el juego). **Sin oír todavía**: falta que alguien lo escuche (tono, ritmo, clics) y afinar mezcla/volumen; el PSG no se ha ejercitado (el juego solo usa DS A). Posible mejora: resamplear mejor que el mantenimiento de orden cero.
 4. Estados guardados; comprobar `BgAffineSet`/`ObjAffineSet` (escritas de memoria, sin verificar); resto de la BIOS.
-5. `scan` que falle si algo a subir contiene bytes de la ROM, antes de cualquier push. Nada se ha subido en esta sesión.
+5. ~~`scan`~~ (hecho: `tools/scan.py`, hook con `tools/install_hooks.sh`; limpio sobre todo el historial).
 6. Limpiar los `.ppm` y `dump_*.bin` que cayeron en la raíz del repo (ahora en `.gitignore`).
