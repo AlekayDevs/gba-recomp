@@ -87,6 +87,8 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
     writeln!(o, "    LOAD();").unwrap();
     writeln!(o, "    RT_ENTER(0x{entry:08X}u);").unwrap();
     writeln!(o, "    RT_DECL();").unwrap();
+    // the return address at entry: a `bx rN` to it (after `pop {.., rN}`) is a return, not a tail call
+    writeln!(o, "    u32 lr0 = r14; (void)lr0;").unwrap();
     // the instructions are emitted in address order: when code that belongs to this function sits before the entry, jump to it
     if insns.keys().next() != Some(&entry) {
         targets.insert(entry);
@@ -111,12 +113,13 @@ pub fn function(rom: &Rom, d: &Discovery, entry: u32, calls: &mut BTreeSet<u32>)
                     tgt(o, t & !1, calls, "        ");
                 }
             }
-            writeln!(o, "    default: STORE(); rt_site = 0x{pc:08X}u; rt_dispatch(c, {}); return;
+            writeln!(o, "    default: if ({0} == lr0) {{ STORE(); return; }} STORE(); rt_site = 0x{pc:08X}u; rt_dispatch(c, {0}); return;
     }}", r(rs)).unwrap();
         } else if let Some(&t) = d.resolved.get(&pc) {
             tgt(o, t & !1, calls, "    ");
         } else {
             // the target is only known at run time: look it up among the translated functions (a tail call)
+            if rs != 14 { writeln!(o, "    if ({} == lr0) {{ STORE(); return; }}", r(rs)).unwrap(); }
             writeln!(o, "    STORE(); rt_site = 0x{pc:08X}u; rt_dispatch(c, {}); return;", r(rs)).unwrap();
         }
         Ok(())

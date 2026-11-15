@@ -89,13 +89,13 @@ Detalle en `..\minishcap-recomp\plan.md`. Resumen:
 - Código en IWRAM/EWRAM que cambia en ejecución, si existiera, obligaría a un intérprete o a JIT.
 - Tamaño del C generado (≈260 000 instrucciones): compilar en el móvil con TinyCC puede ser lento; medir pronto.
 
-## Punto de reanudación (2026-11-10)
+## Punto de reanudación (2026-11-15)
 
-**Estado:** con `<rom>.sav` de una partida creada, el juego arranca, entra en la partida y reproduce la intro de la vidriera. Se congela en el fotograma ~4270, justo tras el fundido a negro de esa escena.
+**Estado:** la intro de la vidriera termina y el juego entra en el mundo (se ve a Link en el exterior en el fotograma ~6400). Partida nueva creada con pulsaciones (`start@1600`, `a@1900`, `a@2300`, `start@2400`, `a@2650`, `a@2950`, `a@3300`, `a@3500`; el `.sav` resultante se guarda aparte).
 
-**Causa hallada (a medio cerrar):** la pila del código principal (modo sistema, base `0x03007F00`, crece hacia abajo) deriva hacia arriba: un callee vuelve con `sp` más alto que al entrar y el error se acumula (+4 en el fotograma 4131, +8 en 4254, +12 desde 4256) hasta pisar el marco de la pila de IRQ (`0x03007F8C..0x03007FA0`). `IntrMain` restaura entonces `IE` con basura (`6E87`), el juego queda sin VBlank (`IE=2080`) y se queda en `Halt` para siempre.
+**Causa del desvío de `sp` (cerrada):** un `bx rN` cuyo valor es la dirección de retorno de la función (tras `push {r2,lr}` ... `pop {r2,r3}` ... `bx r3`, en `0x0800429E`) se emitía como `rt_dispatch`, que ejecutaba la continuación del llamador y luego volvía a ejecutarla (+4 en `sp` por llamada). Ahora cada función guarda `lr0 = r14` al entrar y el salto indirecto hace `if (rN == lr0) return;` antes de despachar (`src/gen.rs`).
 
-**Siguiente paso:** la función más interna que rompe el contrato es la Thumb `0x080174A4` (la llama el bucle de entidades de la RAM, `0x03005F94`: `mov lr,pc; bx r1` con la tabla de `r10`). Hay que desensamblarla (`gba-recomp disasm <rom> 080174A4 40 thumb`), ver por qué `sp` no vuelve igual (¿`pop` de más, retorno por `pop {pc}`/`bx` mal reconocido, *tail call* con pila distinta?) y corregir el generador (`src/gen.rs`). Después volver a pasar `tools/spike_diff.py` y regenerar con `tools/complete.sh`.
+**Siguiente:** seguir jugando para hallar raíces dinámicas nuevas (`tools/complete.sh`, 5 más esta vez; `dynamic_roots.txt` ya está actualizado); a los ~8000 fotogramas, tras pulsar derecha, `DISPCNT=0140`/`IE=0088` (¿transición de zona o parada?): comprobar.
 
 **Herramientas de diagnóstico ya hechas:**
 - `-DRT_TRACE` al compilar el C generado: `RT_CHK_BEFORE/AFTER` comprueban que cada llamada devuelve con el mismo `sp`; `rt_sp_mismatch` (en un `trace.c` propio, ver abajo) agrupa por sitio de llamada/destino/variación. `RT_ENTER` da la traza de entradas de función. Sin `-DRT_TRACE` los macros no generan código.
@@ -106,7 +106,7 @@ Detalle en `..\minishcap-recomp\plan.md`. Resumen:
 **Hecho hoy:** guardado EEPROM (`runtime/gba_save.c`); lectura de mapas de fondo con base >= `0x8000` en la PPU (la máscara `0x17FFF` quitaba el bit 15); lecturas directas de la CPU en `0x0D000000`; normalización de espejos de la ROM (`0x0A..`, `0x0C..`) en raíces y `rt_dispatch`.
 
 **Pendientes (por orden):**
-1. Cerrar el desvío de `sp` de arriba y comprobar que la intro avanza hasta el título y el juego.
+1. ~~Cerrar el desvío de `sp`~~ (hecho).
 2. Las raíces dinámicas (33 direcciones únicas) están en `..\minishcap-recomp\games\dynamic_roots.txt` (sin commit en ese repo): hacer que el motor lea el perfil `games/<id>.toml` y las incluya.
 oots.txt`, ~60 direcciones) a `..\minishcap-recomp\games\` y hacer que el motor lea el perfil `games/<id>.toml`.
 3. Sonido (M4A, FIFO y PSG); hoy el mezclador corre pero no se oye nada.
