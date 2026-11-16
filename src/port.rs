@@ -190,7 +190,7 @@ pub struct Options {
 }
 
 /// Builds the game for `rom` if the cache does not hold it already; returns the player's path.
-pub fn build(o: &Options, ui: &dyn Ui) -> Result<PathBuf, Failure> {
+pub fn build(o: &Options, ui: &dyn Ui) -> Result<(PathBuf, Game), Failure> {
     let rom = Rom::load(&o.rom.to_string_lossy()).map_err(|m| Failure { code: EXIT_FAILED, message: m })?;
     let crc = crc32(&rom.data);
     let games = load_games(&o.games_dir);
@@ -204,7 +204,7 @@ pub fn build(o: &Options, ui: &dyn Ui) -> Result<PathBuf, Failure> {
     let dir = o.cache.join(format!("{}-{:08x}-{}", game.id, crc, version_tag(&o.root, &o.engine, game)));
     let exe = dir.join(exe_name());
     if exe.is_file() {
-        return Ok(exe);
+        return Ok((exe, game.clone()));
     }
     ui.status(&format!("Preparing {} (only the first time)...", game.title));
     let Some(tcc) = find_tcc(&o.root) else {
@@ -257,7 +257,7 @@ pub fn build(o: &Options, ui: &dyn Ui) -> Result<PathBuf, Failure> {
             if let Err(e) = std::fs::rename(&tmp, &dir) {
                 return fail(EXIT_FAILED, format!("{}: {e}", dir.display()));
             }
-            Ok(exe)
+            Ok((exe, game.clone()))
         }
         Err(e) => {
             let _ = std::fs::remove_dir_all(&tmp);
@@ -268,7 +268,7 @@ pub fn build(o: &Options, ui: &dyn Ui) -> Result<PathBuf, Failure> {
 
 /// Builds if needed, remembers the ROM and plays it, waiting for the game to end. Returns the exit code.
 pub fn run(o: &Options, launch: bool, game_args: &[String], ui: &dyn Ui) -> i32 {
-    let player = match build(o, ui) {
+    let (player, game) = match build(o, ui) {
         Ok(p) => p,
         Err(f) => {
             ui.error(&f.message);
@@ -281,13 +281,33 @@ pub fn run(o: &Options, launch: bool, game_args: &[String], ui: &dyn Ui) -> i32 
     }
     remember_rom(&o.cache, &o.rom);
     ui.launching();
-    match Command::new(&player).arg(&o.rom).args(game_args).status() {
+    let saves = saves_dir(o);
+    let _ = std::fs::create_dir_all(&saves);
+    match Command::new(&player).arg(&o.rom).arg("--saves").arg(&saves).arg("--title").arg(&game.title).args(game_args).status() {
         Ok(s) => s.code().unwrap_or(EXIT_FAILED),
         Err(e) => {
             ui.error(&format!("{}: {e}", player.display()));
             EXIT_FAILED
         }
     }
+}
+
+/// Where saves and save states go: `saves/` next to the profiles (so, next to the program in a package), or in the
+/// cache when that folder cannot be written.
+pub fn saves_dir(o: &Options) -> PathBuf {
+    let beside = std::path::absolute(&o.games_dir).unwrap_or_else(|_| o.games_dir.clone()).parent().map(|p| p.join("saves"));
+    if let Some(d) = beside {
+        let ok = std::fs::create_dir_all(&d).is_ok() && {
+            let probe = d.join(".write-test");
+            let w = std::fs::write(&probe, b"").is_ok();
+            let _ = std::fs::remove_file(&probe);
+            w
+        };
+        if ok {
+            return d;
+        }
+    }
+    o.cache.join("saves")
 }
 
 /// Where the ROM dialog opens: the folder of the remembered ROM.

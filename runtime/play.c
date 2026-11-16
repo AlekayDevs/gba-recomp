@@ -115,8 +115,11 @@ static void on_frame(u32 frame) {
 int main(int argc, char **argv) {
     if (argc < 2) { fprintf(stderr, "usage: play <rom.gba> [--scale N] [--fullscreen] [--nolimit]\n"); return 2; }
     int scale = 4, full = 0;
+    const char *saves_dir = NULL, *title = "gba-recomp";
     for (int i = 2; i < argc; i++) {
         if (!strcmp(argv[i], "--scale") && i + 1 < argc) scale = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--saves") && i + 1 < argc) saves_dir = argv[++i];
+        else if (!strcmp(argv[i], "--title") && i + 1 < argc) title = argv[++i];
         else if (!strcmp(argv[i], "--fullscreen")) full = 1;
         else if (!strcmp(argv[i], "--nolimit")) limit = 0;
     }
@@ -130,7 +133,7 @@ int main(int argc, char **argv) {
     fclose(f);
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
-    win = SDL_CreateWindow("gba-recomp", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 240 * scale, 160 * scale,
+    win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 240 * scale, 160 * scale,
                            SDL_WINDOW_RESIZABLE | (full ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
     ren = win ? SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED) : NULL;
     if (!ren && win) ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
@@ -150,13 +153,35 @@ int main(int argc, char **argv) {
     for (int i = 0; i < SDL_NumJoysticks(); i++) if (SDL_IsGameController(i)) { pad = SDL_GameControllerOpen(i); break; }
 
     {
-        /* the save file goes next to the ROM: <rom without .gba>.sav */
-        char sav[512];
+        /* the save file goes next to the ROM (<rom without .gba>.sav) or, with --saves DIR, into that folder under the
+           ROM's name; a save found next to the ROM is copied there the first time */
+        char sav[512], old[512];
         snprintf(sav, sizeof sav, "%s", argv[1]);
         char *dot = strrchr(sav, '.');
         if (dot && (!strchr(dot, '/')) && (!strchr(dot, 92))) *dot = 0;
+        snprintf(old, sizeof old, "%s.sav", sav);
+        if (saves_dir) {
+            const char *name = strrchr(sav, '/'); const char *bs = strrchr(sav, 92);
+            if (bs && (!name || bs > name)) name = bs;
+            name = name ? name + 1 : sav;
+            char moved[512];
+            snprintf(moved, sizeof moved, "%s/%s", saves_dir, name);
+            snprintf(sav, sizeof sav, "%s", moved);
+        }
         snprintf(state_base, sizeof state_base, "%s", sav);
         strncat(sav, ".sav", sizeof sav - strlen(sav) - 1);
+        if (saves_dir) {
+            FILE *have = fopen(sav, "rb");
+            if (have) fclose(have);
+            else {
+                FILE *src = fopen(old, "rb");
+                if (src) {
+                    FILE *dst = fopen(sav, "wb");
+                    if (dst) { char buf[4096]; size_t n; while ((n = fread(buf, 1, sizeof buf, src)) > 0) fwrite(buf, 1, n, dst); fclose(dst); }
+                    fclose(src);
+                }
+            }
+        }
         save_init(sav);
     }
     sys_max_frames = 0;
