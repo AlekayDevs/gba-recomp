@@ -1,5 +1,6 @@
 /* Runs the recompiled game without a window: the entry point, a number of frames, then a summary of the state.
      run <rom.gba> [frames] [--press KEY@FRAME[+LEN]]... [--shot file.ppm] [--shot-at FRAME:file.ppm]... [--dump-at FRAME]
+     [--script file] (lines "KEY FRAME [LEN]") [--watch N] (every N frames: hashes of VRAM, OAM, EWRAM)
    Keys: a b select start right left up down r l. */
 #include "gba_sys.h"
 #include <setjmp.h>
@@ -9,8 +10,13 @@
 
 void rt_entry(Cpu *c); /* generated: calls the function at the entry of the ROM */
 
-static struct { u32 key, from, to; } presses[64];
-static int n_presses;
+static struct press { u32 key, from, to; } *presses;
+static int n_presses, cap_presses;
+static void add_press(u32 key, u32 from, u32 len) {
+    if (n_presses == cap_presses) { cap_presses = cap_presses ? cap_presses * 2 : 256; presses = realloc(presses, cap_presses * sizeof *presses); }
+    presses[n_presses].key = key; presses[n_presses].from = from; presses[n_presses].to = from + len; n_presses++;
+}
+static u32 watch_every;
 static struct { u32 frame; char path[260]; } shots[16];
 static int n_shots;
 static const char *final_shot;
@@ -87,6 +93,11 @@ static void on_frame(u32 f) {
     wav_frames += apu_n; apu_n = 0;
     if (f == dump_frame) dump_video();
     for (int i = 0; i < n_presses; i++) if (f >= presses[i].from && f < presses[i].to) k |= presses[i].key;
+    if (watch_every && f % watch_every == 0) {
+        /* a fingerprint of what is on the screen's sources, to see whether the game is alive: frame, vram, oam, ewram, IE */
+        printf("watch %u vram %08X oam %08X ewram %08X IE %04X keys %03X\n", f, hash(rt_vram, sizeof rt_vram), hash(rt_oam, sizeof rt_oam), hash(rt_ewram, sizeof rt_ewram), io_get16(IO_IE), k);
+        fflush(stdout);
+    }
     sys_keys = k;
     for (int i = 0; i < n_shots; i++) if (shots[i].frame == f && ppu_write_ppm(shots[i].path)) printf("screenshot %s (frame %u)\n", shots[i].path, f);
 }
@@ -116,12 +127,24 @@ int main(int argc, char **argv) {
 "); return 2; }
             n_states++; continue;
         }
+        if (!strcmp(argv[i], "--watch") && i + 1 < argc) { watch_every = (u32)atoi(argv[++i]); continue; }
+        if (!strcmp(argv[i], "--script") && i + 1 < argc) {
+            /* one press per line: KEY FRAME [LEN] */
+            FILE *sf = fopen(argv[++i], "r");
+            if (!sf) { perror(argv[i]); return 1; }
+            char ln[128], name[16]; u32 from, len;
+            while (fgets(ln, sizeof ln, sf)) {
+                len = 4;
+                if (sscanf(ln, "%15s %u %u", name, &from, &len) >= 2) add_press(key_bit(name), from, len);
+            }
+            fclose(sf); continue;
+        }
         if (!strcmp(argv[i], "--wav") && i + 1 < argc) { wav_open(argv[++i]); continue; }
         if (!strcmp(argv[i], "--dump-at") && i + 1 < argc) { dump_frame = (u32)atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--press") && i + 1 < argc) {
             char name[16]; u32 from, len = 4;
             if (sscanf(argv[++i], "%15[a-z]@%u+%u", name, &from, &len) < 2) { fprintf(stderr, "bad --press\n"); return 2; }
-            presses[n_presses].key = key_bit(name); presses[n_presses].from = from; presses[n_presses].to = from + len; n_presses++;
+            add_press(key_bit(name), from, len);
         } else if (!strcmp(argv[i], "--shot") && i + 1 < argc) {
             final_shot = argv[++i];
         } else if (!strcmp(argv[i], "--shot-at") && i + 1 < argc) {
