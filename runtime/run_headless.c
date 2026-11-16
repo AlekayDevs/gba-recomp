@@ -17,6 +17,24 @@ static void add_press(u32 key, u32 from, u32 len) {
     presses[n_presses].key = key; presses[n_presses].from = from; presses[n_presses].to = from + len; n_presses++;
 }
 static u32 watch_every;
+#ifdef RT_ROMSTAT
+#ifndef ROM_SHIFT
+#define ROM_SHIFT 12
+#endif
+extern u32 rt_rom_stat[1 << 20]; extern int rt_rom_stat_on;
+static u32 stat_from, stat_to;
+static void rom_stat_report(void) {
+    /* the 24 most read 4 KB pages of the ROM in the window */
+    for (int n = 0; n < 24; n++) {
+        int best = -1; u32 bv = 0;
+        for (int i = 0; i < (1 << 20); i++) if (rt_rom_stat[i] > bv) { bv = rt_rom_stat[i]; best = i; }
+        if (best < 0) break;
+        printf("romstat block 0x%06X reads %u
+", (unsigned)best << ROM_SHIFT, bv);
+        rt_rom_stat[best] = 0;
+    }
+}
+#endif
 static struct { u32 frame; char path[260]; } shots[16];
 static int n_shots;
 static const char *final_shot;
@@ -93,6 +111,13 @@ static void on_frame(u32 f) {
     wav_frames += apu_n; apu_n = 0;
     if (f == dump_frame) dump_video();
     for (int i = 0; i < n_presses; i++) if (f >= presses[i].from && f < presses[i].to) k |= presses[i].key;
+#ifdef RT_ROMSTAT
+#ifndef ROM_SHIFT
+#define ROM_SHIFT 12
+#endif
+    if (stat_to && f == stat_from) { memset(rt_rom_stat, 0, sizeof rt_rom_stat); rt_rom_stat_on = 1; }
+    if (stat_to && f == stat_to) { rt_rom_stat_on = 0; rom_stat_report(); }
+#endif
     if (watch_every && f % watch_every == 0) {
         /* a fingerprint of what is on the screen's sources, to see whether the game is alive: frame, vram, oam, ewram, IE */
         printf("watch %u vram %08X oam %08X ewram %08X IE %04X keys %03X\n", f, hash(rt_vram, sizeof rt_vram), hash(rt_oam, sizeof rt_oam), hash(rt_ewram, sizeof rt_ewram), io_get16(IO_IE), k);
@@ -127,6 +152,12 @@ int main(int argc, char **argv) {
 "); return 2; }
             n_states++; continue;
         }
+#ifdef RT_ROMSTAT
+#ifndef ROM_SHIFT
+#define ROM_SHIFT 12
+#endif
+        if (!strcmp(argv[i], "--romstat") && i + 1 < argc) { sscanf(argv[++i], "%u:%u", &stat_from, &stat_to); continue; }
+#endif
         if (!strcmp(argv[i], "--watch") && i + 1 < argc) { watch_every = (u32)atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--script") && i + 1 < argc) {
             /* one press per line: KEY FRAME [LEN] */

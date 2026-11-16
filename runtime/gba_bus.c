@@ -6,6 +6,16 @@
 
 uint8_t rt_ewram[0x40000], rt_iwram[0x8000], rt_pal[0x400], rt_vram[0x18000], rt_oam[0x400], rt_io[0x400];
 uint8_t *rt_rom;
+#ifdef RT_ROMSTAT
+#ifndef ROM_SHIFT
+#define ROM_SHIFT 12
+#endif
+/* which 4 KB pages of the ROM the CPU reads (to find fonts and tables while the game runs); counted only while rt_rom_stat_on */
+u32 rt_rom_stat[1 << 20]; int rt_rom_stat_on;
+#define ROM_HIT(o) do { if (rt_rom_stat_on) rt_rom_stat[((o) & 0x01FFFFFF) >> ROM_SHIFT]++; } while (0)
+#else
+#define ROM_HIT(o) ((void)0)
+#endif
 u32 rt_rom_len;
 static uint8_t sram[0x10000];
 
@@ -75,6 +85,7 @@ u32 rd8(u32 a) {
     case 0x08: case 0x09: case 0x0A: case 0x0B: case 0x0C: case 0x0D: {
         u32 o = a & 0x01FFFFFF;
         if ((a >> 24) == 0x0D && 0) return 1;
+        ROM_HIT(o);
         return o < rt_rom_len ? rt_rom[o] : (a >> 1) & 0xFF;
     }
     case 0x0E: case 0x0F: return sram[a & 0xFFFF];
@@ -106,6 +117,7 @@ u32 rd32(u32 a) {
     case 0x04: v = (a & 0xFFFFFF) < 0x400 ? io_read16(b) | (io_read16(b + 2) << 16) : 0; break;
     case 0x08: case 0x09: case 0x0A: case 0x0B: case 0x0C: case 0x0D: {
         u32 o = b & 0x01FFFFFF;
+        ROM_HIT(o);
         if (o + 4 <= rt_rom_len) { v = *(u32 *)(rt_rom + o); break; }
     } /* fall through */
     default: v = rd8(b) | (rd8(b + 1) << 8) | (rd8(b + 2) << 16) | ((u32)rd8(b + 3) << 24); break;
