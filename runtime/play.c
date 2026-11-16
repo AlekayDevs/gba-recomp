@@ -120,6 +120,7 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i], "--scale") && i + 1 < argc) scale = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--saves") && i + 1 < argc) saves_dir = argv[++i];
         else if (!strcmp(argv[i], "--title") && i + 1 < argc) title = argv[++i];
+        else if ((!strcmp(argv[i], "--game-dir") || !strcmp(argv[i], "--language")) && i + 1 < argc) i++;
         else if (!strcmp(argv[i], "--fullscreen")) full = 1;
         else if (!strcmp(argv[i], "--nolimit")) limit = 0;
     }
@@ -131,6 +132,7 @@ int main(int argc, char **argv) {
     rt_rom = malloc(rt_rom_len);
     if (fread(rt_rom, 1, rt_rom_len, f) != rt_rom_len) return 1;
     fclose(f);
+    rt_game_start(argc, argv);
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 240 * scale, 160 * scale,

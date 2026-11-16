@@ -218,3 +218,16 @@ void sys_state(StateIO *s) {
     ST(s, cur_line); ST(s, poll_cycles); ST(s, rt_budget);
     if (!s->save) in_irq = 0;
 }
+
+void rt_game_start(int argc, char **argv) {
+    const char *dir = ".", *lang = "";
+    for (int i = 2; i + 1 < argc; i++) {
+        if (!strcmp(argv[i], "--game-dir")) dir = argv[i + 1];
+        else if (!strcmp(argv[i], "--language")) lang = argv[i + 1];
+    }
+#ifdef RT_GAME
+    game_init(rt_rom, rt_rom_len, dir, lang);
+#else
+    (void)argc; (void)argv; (void)dir; (void)lang;
+#endif
+}

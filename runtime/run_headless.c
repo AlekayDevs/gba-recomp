@@ -145,6 +145,7 @@ int main(int argc, char **argv) {
     rt_rom = malloc(rt_rom_len);
     if (fread(rt_rom, 1, rt_rom_len, f) != rt_rom_len) return 1;
     fclose(f);
+    rt_game_start(argc, argv);
     sys_max_frames = 60;
     for (int i = 2; i < argc; i++) {
         if ((!strcmp(argv[i], "--save-state") || !strcmp(argv[i], "--load-state")) && i + 1 < argc && n_states < 8) {
@@ -159,6 +160,7 @@ int main(int argc, char **argv) {
 #endif
         if (!strcmp(argv[i], "--romstat") && i + 1 < argc) { sscanf(argv[++i], "%u:%u", &stat_from, &stat_to); continue; }
 #endif
+        if ((!strcmp(argv[i], "--game-dir") || !strcmp(argv[i], "--language")) && i + 1 < argc) { i++; continue; }
         if (!strcmp(argv[i], "--watch") && i + 1 < argc) { watch_every = (u32)atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--script") && i + 1 < argc) {
             /* one press per line: KEY FRAME [LEN] */

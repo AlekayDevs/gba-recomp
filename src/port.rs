@@ -133,7 +133,25 @@ pub fn version_tag(root: &Path, engine: &Path, game: &Game) -> String {
             }
         }
     }
+    for p in game_sources(game) {
+        buf.extend(std::fs::read(p).unwrap_or_default());
+    }
     format!("{:08x}", crc32(&buf))
+}
+
+/// The folder with a game's own files (`games/<id>/`): C that patches the ROM in memory (`*.c`), `lang/`, an icon.
+pub fn game_dir(game: &Game) -> Option<PathBuf> {
+    game.profile.parent().map(|p| p.join(&game.id))
+}
+
+/// The game's own C files, sorted (none when the game has nothing of its own).
+pub fn game_sources(game: &Game) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = game_dir(game)
+        .and_then(|d| std::fs::read_dir(d).ok())
+        .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "c")).collect())
+        .unwrap_or_default();
+    v.sort();
+    v
 }
 
 /// A C compiler: `GBA_PORT_CC`/`TCC`, the TinyCC of the package (`toolchain/tcc`), `tcc` on the PATH, or one of a
@@ -243,6 +261,13 @@ pub fn build(o: &Options, ui: &dyn Ui) -> Result<(PathBuf, Game), Failure> {
         for f in RUNTIME {
             cmd.arg(rt.join(f));
         }
+        let own = game_sources(game);
+        if !own.is_empty() {
+            cmd.arg("-DRT_GAME");
+            for f in &own {
+                cmd.arg(f);
+            }
+        }
         cmd.arg("-lSDL2");
         let r = cmd.output().map_err(|e| format!("{}: {e}", tcc.display()))?;
         if !r.status.success() {
@@ -283,7 +308,10 @@ pub fn run(o: &Options, launch: bool, game_args: &[String], ui: &dyn Ui) -> i32 
     ui.launching();
     let saves = saves_dir(o);
     let _ = std::fs::create_dir_all(&saves);
-    match Command::new(&player).arg(&o.rom).arg("--saves").arg(&saves).arg("--title").arg(&game.title).args(game_args).status() {
+    match Command::new(&player).arg(&o.rom).arg("--saves").arg(&saves).arg("--title").arg(&game.title)
+        .arg("--game-dir").arg(game_dir(&game).unwrap_or_default())
+        .arg("--language").arg(std::env::var("GBA_PORT_LANGUAGE").unwrap_or_default())
+        .args(game_args).status() {
         Ok(s) => s.code().unwrap_or(EXIT_FAILED),
         Err(e) => {
             ui.error(&format!("{}: {e}", player.display()));

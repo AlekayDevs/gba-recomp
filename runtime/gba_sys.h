@@ -36,6 +36,14 @@ void sys_halt(Cpu *c);             /* wait for an interrupt: advance a frame */
 void sys_run_irq(Cpu *c);
 extern u32 sys_frames;
 extern u32 sys_max_frames;
+
+/* Game-specific C (games/<id>/*.c, compiled in with -DRT_GAME) may patch the ROM in memory before the first instruction runs:
+ * game_init(rom, len, folder of the game's files, language such as "es" or "" for the original). The ROM on disk is never touched.
+ * rt_game_start reads --game-dir DIR and --language L from the command line and calls it. */
+void rt_game_start(int argc, char **argv);
+#ifdef RT_GAME
+void game_init(uint8_t *rom, u32 len, const char *game_dir, const char *language);
+#endif
 extern void (*sys_frame_hook)(u32 frame);
 int ppu_write_ppm(const char *path);
 extern uint32_t ppu_frame[160][240];
