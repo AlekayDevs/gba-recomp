@@ -13,4 +13,8 @@ path = "src/lib.rs"
 name = "gba-recomp"
 path = "src/main.rs"
 
+[[bin]]
+name = "gba-port"
+path = "src/bin/gba-port.rs"
+
 [dependencies]

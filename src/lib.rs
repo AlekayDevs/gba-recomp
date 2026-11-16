@@ -5,6 +5,7 @@ pub mod discover;
 pub mod gen;
 pub mod gen_arm;
 pub mod map;
+pub mod port;
 pub mod profile;
 pub mod rom;
 pub mod thumb;
