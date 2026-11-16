@@ -12,7 +12,10 @@ cargo test                                            # decodificadores ARM y Th
 ./target/release/gba-recomp trace <rom.gba> [entrada] # descubrimiento de código desde la entrada
 ./target/release/gba-recomp gen <rom.gba> <out.c> --pointers # C de las funciones Thumb (spike; ver tools/spike.sh)
 ./target/release/gba-recomp map <rom.gba> [--pointers] [--overlay ..] # mapa: código, pools, tablas y huecos
+./target/release/gba-port [<rom.gba>] [--games DIR] [--cache DIR] [--no-launch] [--update]  # lanzador: sin argumentos y sin terminal abre la ventana (Windows)
 ```
+
+**Lanzador** (`gba-port`): `src/port.rs` (identifica la ROM por CRC32 con `games/*.toml`, genera el C, compila con TinyCC + `runtime/` + SDL2, caché por juego/CRC/versión, lanza; partidas en `saves/` junto a `games/`), `src/launcher.rs` (textos es/en, pantallas, tema y marca desde `[launcher]` del perfil, sin ventana: probable sin Win32), `src/launcher_win.rs` (la ventana Win32 sin dependencias), `src/update.rs` (aviso de versión nueva: apagado por defecto, GitHub + `SHA256SUMS`, `update.info` junto al exe; `GBA_PORT_UPDATE_API` apunta a un servidor local para probarlo), `build.rs` (icono y manifiesto de los exe; `GBA_PORT_ICON` pone el icono de un juego). El diseño sigue el de `..\snes-recomp` (`port.rs`, `launcher*.rs`, `update.rs`).
 
 ## Estado
 

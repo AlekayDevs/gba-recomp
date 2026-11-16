@@ -9,6 +9,7 @@
 
 use crate::launcher::{self, Button, Key, Lang, Screen};
 use crate::port::{self, Options, Ui};
+use crate::update;
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, Ordering};
@@ -342,9 +343,12 @@ struct Controls {
     primary: Hwnd,
     secondary: Hwnd,
     copy: Hwnd,
+    /// The toggle of the update notice (only when this installation updates itself).
+    update: Hwnd,
 }
 
 static CONTROLS: OnceLock<Controls> = OnceLock::new();
+static UPDATE_ON: AtomicBool = AtomicBool::new(false);
 
 /// The fonts, brushes and icon the window paints with (made once, when it is created).
 struct Look {
@@ -434,9 +438,11 @@ unsafe fn create_controls(hwnd: Hwnd) {
     let body = child(hwnd, "STATIC", "", WS_VISIBLE | SS_CENTER, 0, 40, 160, 480, 70, normal);
     let detail = child(hwnd, "EDIT", "", WS_BORDER | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_TABSTOP, 0, 40, 150, 480, 110, normal);
     let copy = child(hwnd, "BUTTON", "", WS_TABSTOP | BS_OWNERDRAW, ID_COPY, 40, 292, 150, 32, normal);
-    let secondary = child(hwnd, "BUTTON", "", WS_TABSTOP | BS_OWNERDRAW, ID_SECONDARY, 180, 292, 200, 32, normal);
+    let secondary = child(hwnd, "BUTTON", "", WS_TABSTOP | BS_OWNERDRAW, ID_SECONDARY, 180, 286, 200, 32, normal);
     let primary = child(hwnd, "BUTTON", "", WS_TABSTOP | BS_OWNERDRAW | BS_DEFPUSHBUTTON, ID_PRIMARY, 150, 232, 260, 46, normal);
-    let _ = CONTROLS.set(Controls { body, detail, primary, secondary, copy });
+    let update = child(hwnd, "BUTTON", launcher::text(gui().lang, Key::UpdateCheckbox), WS_TABSTOP | BS_OWNERDRAW, ID_UPDATE, 40, 324, 330, 18, normal);
+    UPDATE_ON.store(update_info().is_some() && update::load_settings(&gui().cache).check, Ordering::SeqCst);
+    let _ = CONTROLS.set(Controls { body, detail, primary, secondary, copy, update });
 }
 
 fn set_text(h: Hwnd, s: &str) {
@@ -492,6 +498,7 @@ fn draw(screen: &Screen) {
             set_text(h, l);
         }
     }
+    show_control(c.update, update_info().is_some() && matches!(screen, Screen::Pick | Screen::Ready(_)));
     show_control(c.copy, copy);
     if copy {
         set_text(c.copy, t(Key::CopyDetail));
@@ -507,7 +514,7 @@ fn draw(screen: &Screen) {
             mv(c.secondary, 370, 292, 150, 32);
         } else {
             mv(c.primary, 150, 232, 260, 46);
-            mv(c.secondary, 180, 292, 200, 32);
+            mv(c.secondary, 180, 286, 200, 32);
         }
     }
     // what was hidden or shown is painted now, not at the next occasion
@@ -627,7 +634,19 @@ fn options(rom: PathBuf) -> Options {
     Options { rom, root: g.setup.root.clone(), engine: g.setup.engine.clone(), games_dir: g.setup.games_dir.clone(), cache: g.cache.clone() }
 }
 
-unsafe fn on_click(hwnd: Hwnd, id: i32) {    let button = match id {
+unsafe fn on_click(hwnd: Hwnd, id: i32) {
+    if id == ID_UPDATE {
+        if let (Some(c), Some(info)) = (CONTROLS.get(), update_info()) {
+            let on = !UPDATE_ON.load(Ordering::SeqCst);
+            UPDATE_ON.store(on, Ordering::SeqCst);
+            update::set_check(&gui().cache, on);
+            InvalidateRect(c.update, std::ptr::null(), 1);
+            if on {
+                std::thread::spawn(move || update_flow(info, true));
+            }
+        }
+        return;
+    }    let button = match id {
         ID_PRIMARY => Button::Primary,
         ID_SECONDARY => Button::Secondary,
         ID_COPY => Button::Copy,
@@ -741,6 +760,23 @@ unsafe fn draw_button(di: &DrawItem) {
     let th = theme();
     let rc = Rect { left: di.rc.left, top: di.rc.top, right: di.rc.right, bottom: di.rc.bottom };
     FillRect(di.dc, &rc, page_brush());
+    if di.ctl_id as i32 == ID_UPDATE {
+        // a small gold box, ticked when on, and the text beside it
+        let side = rc.bottom - rc.top - scale(4);
+        let (brush, pen) = (CreateSolidBrush(if UPDATE_ON.load(Ordering::SeqCst) { th.gold } else { page_color() }), CreatePen(0, 1, th.gold));
+        let (ob, op) = (SelectObject(di.dc, brush), SelectObject(di.dc, pen));
+        RoundRect(di.dc, rc.left + 1, rc.top + scale(2), rc.left + 1 + side, rc.top + scale(2) + side, scale(4), scale(4));
+        SelectObject(di.dc, ob);
+        SelectObject(di.dc, op);
+        DeleteObject(brush);
+        DeleteObject(pen);
+        let mut label = [0u16; 128];
+        let n = GetWindowTextW(di.item, label.as_mut_ptr(), label.len() as i32).max(0) as usize;
+        let mut r = Rect { left: rc.left + side + scale(8), top: rc.top, right: rc.right, bottom: rc.bottom };
+        SetBkMode(di.dc, 1);
+        text_at(di.dc, &String::from_utf16_lossy(&label[..n]), look.sub, th.ink, &mut r, DT_VCENTER);
+        return;
+    }
     let primary = di.ctl_id as i32 == ID_PRIMARY;
     let big = primary && rc.bottom - rc.top > scale(40);
     let pressed = di.state & ODS_SELECTED != 0;
@@ -951,6 +987,68 @@ impl Ui for WindowUi {
     }
 }
 
+// ---- update notice ----
+
+/// What this installation says about itself (`update.info` next to the executable); None: it does not update itself.
+fn update_info() -> Option<update::Info> {
+    update::read_info(std::env::current_exe().ok()?.parent()?)
+}
+
+fn message(text: &str, caption: &str, kind: u32) -> i32 {
+    let h = gui().hwnd.load(Ordering::SeqCst);
+    unsafe { MessageBoxW(h, wide(text).as_ptr(), wide(caption).as_ptr(), kind) }
+}
+
+/// The check and what follows, in a thread of its own because it waits for the network. `manual`: the person has just
+/// ticked the box, so every answer is told; otherwise only a new version is.
+fn update_flow(info: update::Info, manual: bool) {
+    let g = gui();
+    let t = |k: Key| launcher::text(g.lang, k);
+    for _ in 0..40 {
+        if g.hwnd.load(Ordering::SeqCst) != 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    match update::check(&g.cache, &info, manual) {
+        update::Outcome::Available { tag, .. } => {
+            let ask = t(Key::UpdateAsk).replace("{tag}", &tag).replace("{current}", &info.version);
+            match message(&ask, t(Key::UpdateTitle), MB_YESNOCANCEL | MB_ICONQUESTION) {
+                IDYES => install_now(&info),
+                IDCANCEL => update::skip(&g.cache, &tag),
+                _ => {}
+            }
+        }
+        update::Outcome::UpToDate if manual => {
+            message(t(Key::UpdateUpToDate), t(Key::UpdateTitle), MB_OK | MB_ICONINFORMATION);
+        }
+        update::Outcome::Failed(_) if manual => {
+            message(t(Key::UpdateUnreachable), t(Key::UpdateTitle), MB_OK | MB_ICONERROR);
+        }
+        _ => {}
+    }
+}
+
+fn install_now(info: &update::Info) {
+    let g = gui();
+    let t = |k: Key| launcher::text(g.lang, k);
+    post_screen(Screen::Busy(t(Key::Updating).to_string()));
+    let Some(exe) = std::env::current_exe().ok() else { return };
+    let dir = exe.parent().map(Path::to_path_buf).unwrap_or_default();
+    match update::install(info, &dir, &g.cache.join("update-work")) {
+        Ok(_) => {
+            message(t(Key::UpdateDone), t(Key::UpdateTitle), MB_OK | MB_ICONINFORMATION);
+            let _ = std::process::Command::new(&exe).spawn(); // the new executable
+            EXIT.store(0, Ordering::SeqCst);
+            post(WM_APP_QUIT);
+        }
+        Err(e) => {
+            post_screen(launcher::first_screen(&g.cache));
+            message(&format!("{} {e}", t(Key::UpdateFailed)), t(Key::UpdateTitle), MB_OK | MB_ICONERROR);
+        }
+    }
+}
+
 // ---- entry points ----
 
 fn init(setup: Setup, cache: &Path, picks_rom: bool) {
@@ -969,7 +1067,15 @@ fn init(setup: Setup, cache: &Path, picks_rom: bool) {
 /// The launcher: the window opens at once and everything follows from its buttons. Returns when the window closes.
 pub fn run_launcher(setup: Setup, cache: &Path) -> i32 {
     init(setup, cache, true);
+    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
+        update::clean_old(&dir); // leftovers of a previous update
+    }
     open_window(launcher::first_screen(cache));
+    if let Some(info) = update_info() {
+        if update::load_settings(cache).check {
+            std::thread::spawn(move || update_flow(info, false));
+        }
+    }
     let handle = gui().thread.lock().unwrap().take();
     if let Some(h) = handle {
         let _ = h.join();

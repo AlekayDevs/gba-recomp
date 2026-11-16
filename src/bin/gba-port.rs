@@ -16,6 +16,9 @@ fn main() {
     #[cfg(not(windows))]
     let console = true;
 
+    if args.iter().any(|a| a == "--update") {
+        std::process::exit(update_from_console());
+    }
     let mut rom: Option<PathBuf> = None;
     let (mut games, mut cache, mut launch) = (None, None, true);
     let mut game_args: Vec<String> = Vec::new();
@@ -61,6 +64,29 @@ fn main() {
     let Some(rom) = rom.or_else(|| port::recalled_rom(&cache)) else { usage() };
     let o = Options { rom, root, engine, games_dir, cache };
     std::process::exit(port::run(&o, launch, &game_args, &ConsoleUi));
+}
+
+/// `gba-port --update`: asks for the latest release and installs it over this installation (what the launcher does with
+/// its check box on, without the window). Needs `update.info` next to the program.
+fn update_from_console() -> i32 {
+    use gba_recomp::update;
+    let exe = std::env::current_exe().unwrap_or_default();
+    let dir = exe.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    let Some(info) = update::read_info(&dir) else {
+        eprintln!("error: this installation does not update itself (no update.info)");
+        return 1;
+    };
+    match update::check(&port::cache_dir(), &info, true) {
+        update::Outcome::Available { tag, .. } => {
+            eprintln!("version {tag} is available (installed {}); installing...", info.version);
+            match update::install(&info, &dir, &port::cache_dir().join("update-work")) {
+                Ok(v) => { eprintln!("updated to {v}"); 0 }
+                Err(e) => { eprintln!("error: {e}"); 1 }
+            }
+        }
+        update::Outcome::UpToDate | update::Outcome::Skipped => { eprintln!("up to date ({})", info.version); 0 }
+        update::Outcome::Failed(e) => { eprintln!("error: {e}"); 1 }
+    }
 }
 
 fn usage() -> ! {

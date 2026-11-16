@@ -12,6 +12,7 @@ pub mod port;
 pub mod profile;
 pub mod rom;
 pub mod thumb;
+pub mod update;
 
 /// How an instruction continues the flow of control. Shared by the ARM and Thumb decoders.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
