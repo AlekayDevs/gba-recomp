@@ -4,6 +4,9 @@ pub mod arm;
 pub mod discover;
 pub mod gen;
 pub mod gen_arm;
+pub mod launcher;
+#[cfg(windows)]
+pub mod launcher_win;
 pub mod map;
 pub mod port;
 pub mod profile;

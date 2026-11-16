@@ -10,6 +10,28 @@ use std::process::Command;
 pub trait Ui {
     fn status(&self, msg: &str);
     fn error(&self, msg: &str);
+    /// A yes/no question (none yet; the console says no).
+    fn confirm(&self, _question: &str) -> bool {
+        false
+    }
+    /// The game is about to start: the launcher window gets out of the way.
+    fn launching(&self) {}
+}
+
+pub const EXIT_FAILED: i32 = 1;
+pub const EXIT_UNKNOWN_ROM: i32 = 3;
+pub const EXIT_NO_TOOLCHAIN: i32 = 4;
+pub const EXIT_BUILD_FAILED: i32 = 5;
+
+/// Why a build stopped: an exit code (it says the kind) and the message the console prints.
+#[derive(Debug)]
+pub struct Failure {
+    pub code: i32,
+    pub message: String,
+}
+
+fn fail<T>(code: i32, message: impl Into<String>) -> Result<T, Failure> {
+    Err(Failure { code, message: message.into() })
 }
 
 pub struct ConsoleUi;
@@ -168,16 +190,16 @@ pub struct Options {
 }
 
 /// Builds the game for `rom` if the cache does not hold it already; returns the player's path.
-pub fn build(o: &Options, ui: &dyn Ui) -> Result<PathBuf, String> {
-    let rom = Rom::load(&o.rom.to_string_lossy())?;
+pub fn build(o: &Options, ui: &dyn Ui) -> Result<PathBuf, Failure> {
+    let rom = Rom::load(&o.rom.to_string_lossy()).map_err(|m| Failure { code: EXIT_FAILED, message: m })?;
     let crc = crc32(&rom.data);
     let games = load_games(&o.games_dir);
     if games.is_empty() {
-        return Err(format!("no game profiles (games/*.toml) in {}", o.games_dir.display()));
+        return fail(EXIT_UNKNOWN_ROM, format!("no game profiles (games/*.toml) in {}", o.games_dir.display()));
     }
     let Some(game) = identify(&games, crc) else {
         let list: Vec<String> = games.iter().map(|g| format!("  {} (CRC32 {:08X})", g.title, g.crc32)).collect();
-        return Err(format!("{}: unknown ROM (CRC32 {crc:08X}). Supported games:\n{}", o.rom.display(), list.join("\n")));
+        return fail(EXIT_UNKNOWN_ROM, format!("{}: unknown ROM (CRC32 {crc:08X}). Supported games:\n{}", o.rom.display(), list.join("\n")));
     };
     let dir = o.cache.join(format!("{}-{:08x}-{}", game.id, crc, version_tag(&o.root, &o.engine, game)));
     let exe = dir.join(exe_name());
@@ -185,11 +207,17 @@ pub fn build(o: &Options, ui: &dyn Ui) -> Result<PathBuf, String> {
         return Ok(exe);
     }
     ui.status(&format!("Preparing {} (only the first time)...", game.title));
-    let tcc = find_tcc(&o.root).ok_or("no C compiler found (looked for toolchain/tcc/tcc, GBA_PORT_CC and tcc on the PATH)")?;
-    let sdl = find_sdl2(&o.root).ok_or("SDL2 development files not found (sdl2/ next to the program, or GBA_PORT_SDL2)")?;
+    let Some(tcc) = find_tcc(&o.root) else {
+        return fail(EXIT_NO_TOOLCHAIN, "no C compiler found (looked for toolchain/tcc/tcc, GBA_PORT_CC and tcc on the PATH)");
+    };
+    let Some(sdl) = find_sdl2(&o.root) else {
+        return fail(EXIT_NO_TOOLCHAIN, "SDL2 development files not found (sdl2/ next to the program, or GBA_PORT_SDL2)");
+    };
     let tmp = o.cache.join(format!("build-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
-    std::fs::create_dir_all(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    if let Err(e) = std::fs::create_dir_all(&tmp) {
+        return fail(EXIT_FAILED, format!("{}: {e}", tmp.display()));
+    }
     let result = (|| -> Result<(), String> {
         let gen_c = tmp.join("gen.c");
         ui.status("Translating the game to C...");
@@ -226,14 +254,46 @@ pub fn build(o: &Options, ui: &dyn Ui) -> Result<PathBuf, String> {
     match result {
         Ok(()) => {
             let _ = std::fs::remove_dir_all(&dir);
-            std::fs::rename(&tmp, &dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            if let Err(e) = std::fs::rename(&tmp, &dir) {
+                return fail(EXIT_FAILED, format!("{}: {e}", dir.display()));
+            }
             Ok(exe)
         }
         Err(e) => {
             let _ = std::fs::remove_dir_all(&tmp);
-            Err(e)
+            fail(EXIT_BUILD_FAILED, e)
         }
     }
+}
+
+/// Builds if needed, remembers the ROM and plays it, waiting for the game to end. Returns the exit code.
+pub fn run(o: &Options, launch: bool, game_args: &[String], ui: &dyn Ui) -> i32 {
+    let player = match build(o, ui) {
+        Ok(p) => p,
+        Err(f) => {
+            ui.error(&f.message);
+            return f.code;
+        }
+    };
+    if !launch {
+        println!("{}", player.display());
+        return 0;
+    }
+    remember_rom(&o.cache, &o.rom);
+    ui.launching();
+    match Command::new(&player).arg(&o.rom).args(game_args).status() {
+        Ok(s) => s.code().unwrap_or(EXIT_FAILED),
+        Err(e) => {
+            ui.error(&format!("{}: {e}", player.display()));
+            EXIT_FAILED
+        }
+    }
+}
+
+/// Where the ROM dialog opens: the folder of the remembered ROM.
+pub fn start_dir(cache: &Path) -> PathBuf {
+    let p = PathBuf::from(std::fs::read_to_string(cache.join("last-rom.txt")).unwrap_or_default().trim());
+    p.parent().map(Path::to_path_buf).unwrap_or_default()
 }
 
 pub fn remember_rom(cache: &Path, rom: &Path) {
