@@ -29,8 +29,7 @@ static void rom_stat_report(void) {
         int best = -1; u32 bv = 0;
         for (int i = 0; i < (1 << 20); i++) if (rt_rom_stat[i] > bv) { bv = rt_rom_stat[i]; best = i; }
         if (best < 0) break;
-        printf("romstat block 0x%06X reads %u
-", (unsigned)best << ROM_SHIFT, bv);
+        printf("romstat block 0x%06X reads %u\n", (unsigned)best << ROM_SHIFT, bv);
         rt_rom_stat[best] = 0;
     }
 }
