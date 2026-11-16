@@ -12,9 +12,46 @@ uint8_t *rt_rom;
 #endif
 /* which 4 KB pages of the ROM the CPU reads (to find fonts and tables while the game runs); counted only while rt_rom_stat_on */
 u32 rt_rom_stat[1 << 20]; int rt_rom_stat_on;
-#define ROM_HIT(o) do { if (rt_rom_stat_on) rt_rom_stat[((o) & 0x01FFFFFF) >> ROM_SHIFT]++; } while (0)
+/* a short history of the ROM addresses read (distinct 64-byte blocks, newest last) and, with rt_vtrace_lo/hi set, a line for every halfword written to that VRAM range */
+u32 rt_vtrace_lo, rt_vtrace_hi, rt_vtrace_left; static u32 rom_ring[8]; static int rom_ring_n;
+#define ROM_HIT(o) do { u32 oo_ = (o) & 0x01FFFFFF; if (rt_rom_stat_on) rt_rom_stat[oo_ >> ROM_SHIFT]++;     if (rt_vtrace_left && oo_ < 0xA00000 && (oo_ >> 6) != (rom_ring[(rom_ring_n + 7) & 7] >> 6)) rom_ring[rom_ring_n++ & 7] = oo_; } while (0)
+u32 rt_wtrace_val, rt_wtrace_left;
+static void wtrace(u32 a, u32 v, int bits) {
+    if (!rt_wtrace_left) return;
+    u32 want = rt_wtrace_val; int hit = 0;
+    if (want == 0xFFFFFFFFu) { /* any write to the buffer area, printed when the ROM history changed since the last one */
+        static u32 last_sig;
+        if (a < 0x02036A00u || a >= 0x02037800u) return;
+        u32 sig = 0; for (int i = 0; i < 8; i++) sig = sig * 31 + rom_ring[i];
+        if (sig == last_sig) return;
+        last_sig = sig; rt_wtrace_left--;
+        printf("wwrite %08X = %08X (%d)  rom:", a, v, bits);
+        for (int i = 0; i < 8; i++) printf(" %06X", rom_ring[(rom_ring_n + i) & 7]);
+        printf("
+");
+        return;
+    }
+    if (bits == 16) hit = (v & 0xFFFF) == (want & 0xFFFF);
+    else if (bits == 32) hit = (v & 0xFFFF) == (want & 0xFFFF) || (v >> 16) == (want & 0xFFFF);
+    else hit = (v & 0xFF) == (want & 0xFF);
+    if (!hit) return;
+    rt_wtrace_left--;
+    printf("wwrite %08X = %08X (%d)  rom:", a, v, bits);
+    for (int i = 0; i < 8; i++) printf(" %06X", rom_ring[(rom_ring_n + i) & 7]);
+    printf("
+");
+}
+static void vtrace(u32 off, u32 v) {
+    if (!rt_vtrace_left || off < rt_vtrace_lo || off >= rt_vtrace_hi || !v) return;
+    rt_vtrace_left--;
+    printf("vwrite %05X = %04X  rom:", off, v);
+    for (int i = 0; i < 8; i++) printf(" %06X", rom_ring[(rom_ring_n + i) & 7]);
+    printf("
+");
+}
 #else
 #define ROM_HIT(o) ((void)0)
+#define wtrace(a, v, b) ((void)0)
 #endif
 u32 rt_rom_len;
 static uint8_t sram[0x10000];
@@ -129,8 +166,8 @@ u32 rd32(u32 a) {
 void wr8(u32 a, u32 v) {
     v &= 0xFF;
     switch (a >> 24) {
-    case 0x02: rt_ewram[a & 0x3FFFF] = (uint8_t)v; break;
-    case 0x03: rt_iwram[a & 0x7FFF] = (uint8_t)v; break;
+    case 0x02: wtrace(a, v, 8); rt_ewram[a & 0x3FFFF] = (uint8_t)v; break;
+    case 0x03: wtrace(a, v, 8); rt_iwram[a & 0x7FFF] = (uint8_t)v; break;
     case 0x04: {
         if ((a & 0xFFFFFF) >= 0x400) break;
         if ((a & 0xFFFFFF) >= 0xA0 && (a & 0xFFFFFF) < 0xA8) { apu_fifo_write(a & 0xFFFFFF, v, 1); break; }
@@ -157,11 +194,15 @@ void wr8(u32 a, u32 v) {
 void wr16(u32 a, u32 v) {
     a &= ~1u;
     switch (a >> 24) {
-    case 0x02: *(uint16_t *)(rt_ewram + (a & 0x3FFFE)) = (uint16_t)v; break;
-    case 0x03: *(uint16_t *)(rt_iwram + (a & 0x7FFE)) = (uint16_t)v; break;
+    case 0x02: wtrace(a, v, 16); *(uint16_t *)(rt_ewram + (a & 0x3FFFE)) = (uint16_t)v; break;
+    case 0x03: wtrace(a, v, 16); *(uint16_t *)(rt_iwram + (a & 0x7FFE)) = (uint16_t)v; break;
     case 0x04: if ((a & 0xFFFFFF) < 0x400) io_write16(a, v); break;
     case 0x05: *(uint16_t *)(rt_pal + (a & 0x3FE)) = (uint16_t)v; break;
-    case 0x06: *(uint16_t *)(rt_vram + (vram_off(a) & ~1u)) = (uint16_t)v; break;
+    case 0x06:
+#ifdef RT_ROMSTAT
+        vtrace(vram_off(a) & ~1u, v & 0xFFFF);
+#endif
+        *(uint16_t *)(rt_vram + (vram_off(a) & ~1u)) = (uint16_t)v; break;
     case 0x07: *(uint16_t *)(rt_oam + (a & 0x3FE)) = (uint16_t)v; break;
     case 0x0E: case 0x0F: sram[a & 0xFFFF] = (uint8_t)v; break;
     default: break;
@@ -171,8 +212,8 @@ void wr16(u32 a, u32 v) {
 void wr32(u32 a, u32 v) {
     a &= ~3u;
     switch (a >> 24) {
-    case 0x02: *(u32 *)(rt_ewram + (a & 0x3FFFC)) = v; break;
-    case 0x03: *(u32 *)(rt_iwram + (a & 0x7FFC)) = v; break;
+    case 0x02: wtrace(a, v, 32); *(u32 *)(rt_ewram + (a & 0x3FFFC)) = v; break;
+    case 0x03: wtrace(a, v, 32); *(u32 *)(rt_iwram + (a & 0x7FFC)) = v; break;
     case 0x04: if ((a & 0xFFFFFF) < 0x400) { io_write16(a, v & 0xFFFF); io_write16(a + 2, v >> 16); } break;
     default: wr16(a, v & 0xFFFF); wr16(a + 2, v >> 16); break;
     }

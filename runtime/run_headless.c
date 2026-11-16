@@ -22,10 +22,12 @@ static u32 watch_every;
 #define ROM_SHIFT 12
 #endif
 extern u32 rt_rom_stat[1 << 20]; extern int rt_rom_stat_on;
+extern u32 rt_wtrace_val, rt_wtrace_left;
+extern u32 rt_vtrace_lo, rt_vtrace_hi, rt_vtrace_left;
 static u32 stat_from, stat_to;
 static void rom_stat_report(void) {
     /* the 24 most read 4 KB pages of the ROM in the window */
-    for (int n = 0; n < 24; n++) {
+    for (int n = 0; n < (getenv("ROMSTAT_N") ? atoi(getenv("ROMSTAT_N")) : 24); n++) {
         int best = -1; u32 bv = 0;
         for (int i = 0; i < (1 << 20); i++) if (rt_rom_stat[i] > bv) { bv = rt_rom_stat[i]; best = i; }
         if (best < 0) break;
@@ -114,7 +116,7 @@ static void on_frame(u32 f) {
 #ifndef ROM_SHIFT
 #define ROM_SHIFT 12
 #endif
-    if (stat_to && f == stat_from) { memset(rt_rom_stat, 0, sizeof rt_rom_stat); rt_rom_stat_on = 1; }
+    if (stat_to && f == stat_from) { if (getenv("VTRACE")) { sscanf(getenv("VTRACE"), "%x:%x:%u", &rt_vtrace_lo, &rt_vtrace_hi, &rt_vtrace_left); rt_rom_stat_on = 1; } if (getenv("WTRACE")) { sscanf(getenv("WTRACE"), "%x:%u", &rt_wtrace_val, &rt_wtrace_left); rt_vtrace_left = 1; rt_vtrace_hi = 0; } memset(rt_rom_stat, 0, sizeof rt_rom_stat); rt_rom_stat_on = 1; }
     if (stat_to && f == stat_to) { rt_rom_stat_on = 0; rom_stat_report(); }
 #endif
     if (watch_every && f % watch_every == 0) {
