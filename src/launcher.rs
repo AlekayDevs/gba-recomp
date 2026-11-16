@@ -172,8 +172,149 @@ pub fn rom_label(rom: &Path) -> String {
     rom.file_name().map_or_else(|| rom.display().to_string(), |n| n.to_string_lossy().into_owned())
 }
 
+/// The colours of the window as Windows wants them (`0x00BBGGRR`). A game's profile can change them (`[launcher]`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Theme {
+    /// the page and the frame's inside
+    pub bg: u32,
+    /// buttons and the box of an error's detail
+    pub panel: u32,
+    /// the same, pressed or under the pointer
+    pub panel_hi: u32,
+    /// the frame, the title and the outline of the buttons
+    pub gold: u32,
+    /// the body text
+    pub ink: u32,
+    /// the page of an error
+    pub error: u32,
+}
+
+/// `#RRGGBB` as `0x00BBGGRR`.
+pub fn parse_color(s: &str) -> Option<u32> {
+    let h = s.trim().strip_prefix('#')?;
+    if h.len() != 6 {
+        return None;
+    }
+    let v = u32::from_str_radix(h, 16).ok()?;
+    Some(((v & 0xFF) << 16) | (v & 0xFF00) | (v >> 16))
+}
+
+fn lighten(c: u32, by: u32) -> u32 {
+    let ch = |s: u32| (((c >> s) & 0xFF) + by).min(255) << s;
+    ch(0) | ch(8) | ch(16)
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        let panel = parse_color("#1F4A5A").unwrap();
+        Theme { bg: parse_color("#0F2530").unwrap(), panel, panel_hi: lighten(panel, 24), gold: parse_color("#E8C547").unwrap(), ink: parse_color("#EDEFF2").unwrap(), error: parse_color("#5A1E22").unwrap() }
+    }
+}
+
+/// How the window looks for a game: its name, the title of the game, the colours and the icon file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Brand {
+    pub name: String,
+    pub title: String,
+    pub theme: Theme,
+    pub icon: Option<PathBuf>,
+    /// CRC32 of the ROM of the game (to pick the brand of the remembered ROM)
+    pub crc32: u32,
+}
+
+impl Default for Brand {
+    fn default() -> Self {
+        Brand { name: "gba-port".into(), title: String::new(), theme: Theme::default(), icon: None, crc32: 0 }
+    }
+}
+
+/// The line without its `# comment` (a `#` inside quotes, as in a colour, is not one).
+fn strip_comment(line: &str) -> &str {
+    let mut quoted = false;
+    for (i, c) in line.char_indices() {
+        match c {
+            '"' => quoted = !quoted,
+            '#' if !quoted => return &line[..i],
+            _ => {}
+        }
+    }
+    line
+}
+
+/// Reads `[game]` (title, crc32) and `[launcher]` (name, bg, panel, gold, ink, error, icon) of a profile; the icon is
+/// relative to the profile's folder. Anything missing or malformed keeps the default.
+pub fn parse_brand(text: &str, dir: &Path) -> Brand {
+    let mut b = Brand::default();
+    let mut section = String::new();
+    for raw in text.lines() {
+        let l = strip_comment(raw).trim();
+        if l.starts_with('[') {
+            section = l.to_string();
+            continue;
+        }
+        let Some((k, v)) = l.split_once('=') else { continue };
+        let k = k.trim();
+        let v = v.trim().trim_matches('"').to_string();
+        match (section.as_str(), k) {
+            ("[game]", "title") => b.title = v,
+            ("[game]", "crc32") => b.crc32 = u32::from_str_radix(&v, 16).unwrap_or(0),
+            ("[launcher]", "name") => b.name = v,
+            ("[launcher]", "icon") => b.icon = Some(dir.join(v)),
+            ("[launcher]", "bg") => b.theme.bg = parse_color(&v).unwrap_or(b.theme.bg),
+            ("[launcher]", "panel") => {
+                if let Some(c) = parse_color(&v) {
+                    b.theme.panel = c;
+                    b.theme.panel_hi = lighten(c, 24);
+                }
+            }
+            ("[launcher]", "gold") => b.theme.gold = parse_color(&v).unwrap_or(b.theme.gold),
+            ("[launcher]", "ink") => b.theme.ink = parse_color(&v).unwrap_or(b.theme.ink),
+            ("[launcher]", "error") => b.theme.error = parse_color(&v).unwrap_or(b.theme.error),
+            _ => {}
+        }
+    }
+    b
+}
+
+/// The brand to open with: that of the game of the remembered ROM, else of the first profile, else the default.
+pub fn brand_for(games_dir: &Path, cache: &Path) -> Brand {
+    let mut all: Vec<Brand> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(games_dir) {
+        let mut files: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "toml")).collect();
+        files.sort();
+        for p in files {
+            if let Ok(t) = std::fs::read_to_string(&p) {
+                all.push(parse_brand(&t, p.parent().unwrap_or(Path::new("."))));
+            }
+        }
+    }
+    let crc = port::recalled_rom(cache).and_then(|r| std::fs::read(r).ok()).map(|d| crate::rom::crc32(&d));
+    crc.and_then(|c| all.iter().find(|b| b.crc32 == c).cloned()).or_else(|| all.into_iter().next()).unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+    #[test]
+    fn brand_from_a_profile() {
+        let t = "[game]
+title = \"X Game\"
+crc32 = \"ABCEBBB1\"
+[launcher]
+name = \"X Recomp\"
+bg = \"#102030\"  # c
+icon = \"x/icon.ico\"
+gold = \"nope\"
+";
+        let b = parse_brand(t, Path::new("games"));
+        assert_eq!((b.name.as_str(), b.title.as_str(), b.crc32), ("X Recomp", "X Game", 0xABCEBBB1));
+        assert_eq!(b.theme.bg, 0x0030_2010, "RGB 102030 is BGR 302010 for Windows");
+        assert_eq!(b.theme.gold, Theme::default().gold, "a bad colour keeps the default");
+        assert_eq!(b.icon, Some(Path::new("games").join("x/icon.ico")));
+        assert_eq!(parse_brand("[game]
+", Path::new(".")), Brand::default());
+    }
+
     use super::*;
 
     fn temp(name: &str) -> PathBuf {

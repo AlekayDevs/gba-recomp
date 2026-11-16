@@ -47,7 +47,8 @@ fn main() {
     #[cfg(windows)]
     {
         use gba_recomp::launcher_win::{self, Setup};
-        let setup = Setup { root: root.clone(), engine: engine.clone(), games_dir: games_dir.clone() };
+        let brand = gba_recomp::launcher::brand_for(&games_dir, &cache);
+        let setup = Setup { root: root.clone(), engine: engine.clone(), games_dir: games_dir.clone(), brand };
         // no terminal and no ROM: the launcher; no terminal and a ROM (dropped on the icon): build and play with a window only when there is something to say
         if !console {
             match rom {

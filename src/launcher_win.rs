@@ -98,8 +98,11 @@ const ACCENT: u32 = 0x00A8_8C1B;
 const ACCENT_PRESSED: u32 = 0x0088_7016;
 const HEADER_H: i32 = 84;
 const STRIPE_H: i32 = 3;
-const CLIENT_W: i32 = 540;
-const CLIENT_H: i32 = 340;
+const CLIENT_W: i32 = 560;
+const CLIENT_H: i32 = 360;
+const LR_LOADFROMFILE: u32 = 0x10;
+const WM_SETICON: u32 = 0x0080;
+const SS_CENTER: u32 = 1;
 
 #[repr(C)]
 struct Point {
@@ -227,6 +230,7 @@ extern "system" {
     fn DrawIconEx(dc: isize, x: i32, y: i32, icon: isize, cx: i32, cy: i32, step: u32, brush: isize, flags: u32) -> i32;
     fn DrawFocusRect(dc: isize, r: *const Rect) -> i32;
     fn LoadImageW(inst: isize, name: usize, kind: u32, cx: i32, cy: i32, flags: u32) -> isize;
+    fn MoveWindow(h: Hwnd, x: i32, y: i32, w: i32, ht: i32, repaint: i32) -> i32;
     fn GetWindowTextW(h: Hwnd, buf: *mut u16, n: i32) -> i32;
     fn MessageBoxW(h: Hwnd, text: *const u16, caption: *const u16, kind: u32) -> i32;
 }
@@ -241,6 +245,7 @@ extern "system" {
     fn CreatePen(style: i32, width: i32, color: u32) -> isize;
     fn SelectObject(dc: isize, obj: isize) -> isize;
     fn DeleteObject(obj: isize) -> i32;
+    fn Polygon(dc: isize, pts: *const Point, n: i32) -> i32;
     fn RoundRect(dc: isize, l: i32, t: i32, r: i32, b: i32, w: i32, h: i32) -> i32;
 }
 
@@ -309,6 +314,7 @@ pub struct Setup {
     pub root: PathBuf,
     pub engine: PathBuf,
     pub games_dir: PathBuf,
+    pub brand: launcher::Brand,
 }
 
 struct Gui {
@@ -340,16 +346,45 @@ struct Controls {
 
 static CONTROLS: OnceLock<Controls> = OnceLock::new();
 
-/// The fonts, brush and icon the window paints with (made once, when it is created).
+/// The fonts, brushes and icon the window paints with (made once, when it is created).
 struct Look {
     title: isize,
     sub: isize,
     button: isize,
+    big: isize,
     page: isize,
+    error_page: isize,
+    panel: isize,
     icon: isize,
 }
 
 static LOOK: OnceLock<Look> = OnceLock::new();
+
+fn theme() -> launcher::Theme {
+    gui().setup.brand.theme
+}
+
+fn is_failed() -> bool {
+    matches!(*gui().screen.lock().unwrap(), Screen::Failed { .. })
+}
+
+/// The brush of the page: the error colour while an error is shown.
+fn page_brush() -> isize {
+    let Some(l) = LOOK.get() else { return 0 };
+    if is_failed() {
+        l.error_page
+    } else {
+        l.page
+    }
+}
+
+fn page_color() -> u32 {
+    if is_failed() {
+        theme().error
+    } else {
+        theme().bg
+    }
+}
 
 fn dpi() -> i32 {
     unsafe {
@@ -381,20 +416,26 @@ unsafe fn child(parent: Hwnd, class: &str, text: &str, style: u32, id: i32, x: i
 
 unsafe fn create_controls(hwnd: Hwnd) {
     let normal = font(10, 400);
-    let inst = GetModuleHandleW(std::ptr::null());
+    let th = theme();
+    let icon = match &gui().setup.brand.icon {
+        Some(p) if p.is_file() => LoadImageW(0, wide(&p.to_string_lossy()).as_ptr() as usize, IMAGE_ICON, scale(64), scale(64), LR_LOADFROMFILE),
+        _ => LoadImageW(GetModuleHandleW(std::ptr::null()), 1, IMAGE_ICON, scale(64), scale(64), 0),
+    };
     let _ = LOOK.set(Look {
-        title: font(17, 600),
+        title: font(18, 700),
         sub: font(10, 400),
         button: font(10, 600),
-        page: CreateSolidBrush(PAGE),
-        icon: LoadImageW(inst, 1, IMAGE_ICON, scale(56), scale(56), 0),
+        big: font(16, 700),
+        page: CreateSolidBrush(th.bg),
+        error_page: CreateSolidBrush(th.error),
+        panel: CreateSolidBrush(th.panel),
+        icon,
     });
-    let top = HEADER_H + STRIPE_H + 20;
-    let body = child(hwnd, "STATIC", "", WS_VISIBLE, 0, 24, top, 492, 150, normal);
-    let detail = child(hwnd, "EDIT", "", WS_BORDER | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_TABSTOP, 0, 24, top, 492, 150, normal);
-    let copy = child(hwnd, "BUTTON", "", WS_TABSTOP, ID_COPY, 24, 286, 150, 34, normal);
-    let secondary = child(hwnd, "BUTTON", "", WS_TABSTOP, ID_SECONDARY, 366, 286, 150, 34, normal);
-    let primary = child(hwnd, "BUTTON", "", WS_TABSTOP | BS_OWNERDRAW | BS_DEFPUSHBUTTON, ID_PRIMARY, 204, 286, 150, 34, normal);
+    let body = child(hwnd, "STATIC", "", WS_VISIBLE | SS_CENTER, 0, 40, 160, 480, 70, normal);
+    let detail = child(hwnd, "EDIT", "", WS_BORDER | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_TABSTOP, 0, 40, 150, 480, 110, normal);
+    let copy = child(hwnd, "BUTTON", "", WS_TABSTOP | BS_OWNERDRAW, ID_COPY, 40, 292, 150, 32, normal);
+    let secondary = child(hwnd, "BUTTON", "", WS_TABSTOP | BS_OWNERDRAW, ID_SECONDARY, 180, 292, 200, 32, normal);
+    let primary = child(hwnd, "BUTTON", "", WS_TABSTOP | BS_OWNERDRAW | BS_DEFPUSHBUTTON, ID_PRIMARY, 150, 232, 260, 46, normal);
     let _ = CONTROLS.set(Controls { body, detail, primary, secondary, copy });
 }
 
@@ -408,8 +449,10 @@ fn show_control(h: Hwnd, visible: bool) {
 
 /// The names of the games the profiles at hand know, for the window to say what it can play.
 fn supported_games() -> String {
-    port::load_games(&gui().setup.games_dir).iter().map(|g| g.title.clone()).collect::<Vec<_>>().join("
-")
+    let games = port::load_games(&gui().setup.games_dir);
+    // with one game its title is already under the name of the window
+    if games.len() <= 1 { String::new() } else { games.iter().map(|g| g.title.clone()).collect::<Vec<_>>().join("
+") }
 }
 
 /// Draws a screen: the texts, the buttons that apply and which of them is the main one.
@@ -454,6 +497,19 @@ fn draw(screen: &Screen) {
         set_text(c.copy, t(Key::CopyDetail));
     }
     *g.screen.lock().unwrap() = screen.clone();
+    unsafe {
+        let mv = |h: Hwnd, x: i32, y: i32, w: i32, ht: i32| {
+            MoveWindow(h, scale(x), scale(y), scale(w), scale(ht), 1);
+        };
+        if matches!(screen, Screen::Failed { .. }) {
+            mv(c.copy, 40, 292, 150, 32);
+            mv(c.primary, 205, 292, 150, 32);
+            mv(c.secondary, 370, 292, 150, 32);
+        } else {
+            mv(c.primary, 150, 232, 260, 46);
+            mv(c.secondary, 180, 292, 200, 32);
+        }
+    }
     // what was hidden or shown is painted now, not at the next occasion
     let h = g.hwnd.load(Ordering::SeqCst);
     if h != 0 {
@@ -606,10 +662,11 @@ unsafe fn on_click(hwnd: Hwnd, id: i32) {    let button = match id {
 }
 
 /// What the header says for a screen: the title, the line under it and whether it is an error.
-fn header_texts(lang: Lang, screen: &Screen) -> (String, &'static str, bool) {
+fn header_texts(lang: Lang, screen: &Screen) -> (String, String, bool) {
+    let b = &gui().setup.brand;
     match screen {
-        Screen::Failed { title, .. } => (title.clone(), launcher::text(lang, Key::WindowTitle), true),
-        _ => (launcher::text(lang, Key::WindowTitle).to_string(), launcher::text(lang, Key::Tagline), false),
+        Screen::Failed { title, .. } => (title.clone(), b.name.clone(), true),
+        _ => (b.name.clone(), if b.title.is_empty() { launcher::text(lang, Key::Tagline).to_string() } else { b.title.clone() }, false),
     }
 }
 
@@ -621,54 +678,95 @@ unsafe fn text_at(dc: isize, text: &str, font: isize, color: u32, rect: &mut Rec
     SelectObject(dc, old);
 }
 
-/// The header: the dark band with the icon, the title and the line under it, and the stripe of the accent colour below.
+fn blend(a: u32, b: u32, t: u32) -> u32 {
+    let ch = |s: u32| ((((a >> s) & 0xFF) * (100 - t) + ((b >> s) & 0xFF) * t) / 100) << s;
+    ch(0) | ch(8) | ch(16)
+}
+
+unsafe fn fill(dc: isize, l: i32, t: i32, r: i32, b: i32, color: u32) {
+    let brush = CreateSolidBrush(color);
+    FillRect(dc, &Rect { left: scale(l), top: scale(t), right: scale(r), bottom: scale(b) }, brush);
+    DeleteObject(brush);
+}
+
+/// A small diamond (the corner ornaments of the frame) centred at (cx, cy).
+unsafe fn diamond(dc: isize, cx: i32, cy: i32, r: i32, color: u32) {
+    let pts = [Point { x: scale(cx), y: scale(cy - r) }, Point { x: scale(cx + r), y: scale(cy) }, Point { x: scale(cx), y: scale(cy + r) }, Point { x: scale(cx - r), y: scale(cy) }];
+    let (brush, pen) = (CreateSolidBrush(color), CreatePen(0, 1, color));
+    let (ob, op) = (SelectObject(dc, brush), SelectObject(dc, pen));
+    Polygon(dc, pts.as_ptr(), 4);
+    SelectObject(dc, ob);
+    SelectObject(dc, op);
+    DeleteObject(brush);
+    DeleteObject(pen);
+}
+
+/// The window: the page, the golden frame with its four diamonds, the emblem, the title and the line under it.
 unsafe fn paint(hwnd: Hwnd) {
     let mut ps = std::mem::zeroed::<PaintStruct>();
     let dc = BeginPaint(hwnd, &mut ps);
     if let Some(look) = LOOK.get() {
         let g = gui();
+        let th = theme();
         let (title, sub, error) = header_texts(g.lang, &g.screen.lock().unwrap());
-        let band = Rect { left: 0, top: 0, right: scale(CLIENT_W), bottom: scale(HEADER_H) };
-        let brush = CreateSolidBrush(if error { HEADER_ERROR } else { HEADER });
-        FillRect(dc, &band, brush);
-        DeleteObject(brush);
-        let stripe = Rect { left: 0, top: scale(HEADER_H), right: scale(CLIENT_W), bottom: scale(HEADER_H + STRIPE_H) };
-        let brush = CreateSolidBrush(if error { STRIPE_ERROR } else { STRIPE });
-        FillRect(dc, &stripe, brush);
-        DeleteObject(brush);
+        let (w, h) = (CLIENT_W, CLIENT_H);
+        let dim = blend(th.gold, page_color(), 55);
+        // the frame: a firm line and a thin one inside
+        fill(dc, 8, 8, w - 8, 10, th.gold);
+        fill(dc, 8, h - 10, w - 8, h - 8, th.gold);
+        fill(dc, 8, 8, 10, h - 8, th.gold);
+        fill(dc, w - 10, 8, w - 8, h - 8, th.gold);
+        fill(dc, 14, 14, w - 14, 15, dim);
+        fill(dc, 14, h - 15, w - 14, h - 14, dim);
+        fill(dc, 14, 14, 15, h - 14, dim);
+        fill(dc, w - 15, 14, w - 14, h - 14, dim);
+        for (cx, cy) in [(9, 9), (w - 9, 9), (9, h - 9), (w - 9, h - 9)] {
+            diamond(dc, cx, cy, 7, th.gold);
+        }
         if look.icon != 0 {
-            DrawIconEx(dc, scale(24), scale(14), look.icon, scale(56), scale(56), 0, 0, DI_NORMAL);
+            DrawIconEx(dc, scale((w - 64) / 2), scale(22), look.icon, scale(64), scale(64), 0, 0, DI_NORMAL);
         }
         SetBkMode(dc, 1);
-        let mut r = Rect { left: scale(96), top: scale(14), right: scale(CLIENT_W - 24), bottom: scale(46) };
-        text_at(dc, &title, look.title, HEADER_TITLE, &mut r, 0);
-        let mut r = Rect { left: scale(96), top: scale(46), right: scale(CLIENT_W - 24), bottom: scale(72) };
-        text_at(dc, sub, look.sub, HEADER_SUB, &mut r, 0);
+        let mut r = Rect { left: scale(24), top: scale(92), right: scale(w - 24), bottom: scale(126) };
+        text_at(dc, &title, look.title, if error { th.ink } else { th.gold }, &mut r, DT_CENTER);
+        let mut r = Rect { left: scale(24), top: scale(126), right: scale(w - 24), bottom: scale(150) };
+        text_at(dc, &sub, look.sub, blend(th.ink, page_color(), 25), &mut r, DT_CENTER);
     }
     EndPaint(hwnd, &ps);
 }
 
-/// The main button: filled with the accent colour, a little darker while pressed, with a dotted rectangle when it has the focus.
+/// A button: the main one is large, filled with the panel colour and outlined in gold; the others are outlined only.
 unsafe fn draw_button(di: &DrawItem) {
     let Some(look) = LOOK.get() else { return };
+    let th = theme();
     let rc = Rect { left: di.rc.left, top: di.rc.top, right: di.rc.right, bottom: di.rc.bottom };
-    FillRect(di.dc, &rc, look.page);
-    let color = if di.state & ODS_SELECTED != 0 { ACCENT_PRESSED } else { ACCENT };
-    let (brush, pen) = (CreateSolidBrush(color), CreatePen(0, 1, color));
+    FillRect(di.dc, &rc, page_brush());
+    let primary = di.ctl_id as i32 == ID_PRIMARY;
+    let big = primary && rc.bottom - rc.top > scale(40);
+    let pressed = di.state & ODS_SELECTED != 0;
+    let fill_color = if primary {
+        if pressed { th.panel_hi } else { th.panel }
+    } else if pressed {
+        th.panel
+    } else {
+        page_color()
+    };
+    let (brush, pen) = (CreateSolidBrush(fill_color), CreatePen(0, if big { scale(2) } else { 1 }, th.gold));
     let (old_brush, old_pen) = (SelectObject(di.dc, brush), SelectObject(di.dc, pen));
-    RoundRect(di.dc, rc.left, rc.top, rc.right, rc.bottom, scale(8), scale(8));
+    let radius = (rc.bottom - rc.top) - 2;
+    RoundRect(di.dc, rc.left + 1, rc.top + 1, rc.right - 1, rc.bottom - 1, radius, radius);
     SelectObject(di.dc, old_brush);
     SelectObject(di.dc, old_pen);
     DeleteObject(brush);
     DeleteObject(pen);
     let mut label = [0u16; 128];
     let n = GetWindowTextW(di.item, label.as_mut_ptr(), label.len() as i32).max(0) as usize;
-    let text = String::from_utf16_lossy(&label[..n]);
+    let text = String::from_utf16_lossy(&label[..n]).to_uppercase();
     let mut r = Rect { left: rc.left, top: rc.top, right: rc.right, bottom: rc.bottom };
     SetBkMode(di.dc, 1);
-    text_at(di.dc, &text, look.button, HEADER_TITLE, &mut r, DT_CENTER | DT_VCENTER);
+    text_at(di.dc, &text, if big { look.big } else { look.button }, if big { th.gold } else { th.ink }, &mut r, DT_CENTER | DT_VCENTER);
     if di.state & ODS_FOCUS != 0 {
-        let f = Rect { left: rc.left + scale(4), top: rc.top + scale(4), right: rc.right - scale(4), bottom: rc.bottom - scale(4) };
+        let f = Rect { left: rc.left + scale(8), top: rc.top + scale(5), right: rc.right - scale(8), bottom: rc.bottom - scale(5) };
         DrawFocusRect(di.dc, &f);
     }
 }
@@ -686,7 +784,7 @@ unsafe extern "system" fn wndproc(hwnd: Hwnd, msg: u32, wp: usize, lp: isize) ->
         WM_ERASEBKGND => {
             let mut r = std::mem::zeroed::<Rect>();
             GetClientRect(hwnd, &mut r);
-            FillRect(wp as isize, &r, LOOK.get().map_or(0, |l| l.page));
+            FillRect(wp as isize, &r, page_brush());
             1
         }
         WM_PAINT => {
@@ -698,19 +796,17 @@ unsafe extern "system" fn wndproc(hwnd: Hwnd, msg: u32, wp: usize, lp: isize) ->
             1
         }
         WM_CTLCOLORBTN => {
-            // the text of the check box sits on the page
             SetBkMode(wp as isize, 1);
-            LOOK.get().map_or(0, |l| l.page)
+            page_brush()
         }
-        WM_CTLCOLORSTATIC => {
+        WM_CTLCOLORSTATIC | 0x0133 => {
             SetBkMode(wp as isize, 1);
+            SetTextColor(wp as isize, theme().ink);
             if CONTROLS.get().is_some_and(|c| c.detail == lp) {
-                // the box with the detail of an error stays white
-                return GetSysColorBrush(COLOR_WINDOW as i32);
+                // the box with the detail of an error: the panel colour
+                return LOOK.get().map_or(0, |l| l.panel);
             }
-            // the texts sit on the page, not on the grey of the buttons
-            SetTextColor(wp as isize, INK);
-            LOOK.get().map_or(0, |l| l.page)
+            page_brush()
         }
         WM_APP_SCREEN => {
             let screen = Box::from_raw(lp as *mut Screen);
@@ -765,13 +861,19 @@ fn window_thread(first: Screen, ready: mpsc::Sender<()>) {
         AdjustWindowRect(&mut r, style, 0);
         let (w, h) = (r.right - r.left, r.bottom - r.top);
         let (x, y) = ((GetSystemMetrics(0) - w) / 2, (GetSystemMetrics(1) - h) / 3);
-        let title = wide(launcher::text(gui().lang, Key::WindowTitle));
+        let title = wide(&gui().setup.brand.name);
         let hwnd = CreateWindowExW(0, class.as_ptr(), title.as_ptr(), style, x, y, w, h, 0, 0, inst, std::ptr::null_mut());
         if hwnd == 0 {
             let _ = ready.send(());
             return;
         }
         gui().hwnd.store(hwnd, Ordering::SeqCst);
+        if let Some(look) = LOOK.get() {
+            if look.icon != 0 {
+                SendMessageW(hwnd, WM_SETICON, 1, look.icon);
+                SendMessageW(hwnd, WM_SETICON, 0, look.icon);
+            }
+        }
         draw(&first);
         ShowWindow(hwnd, SW_SHOW);
         SetForegroundWindow(hwnd);
