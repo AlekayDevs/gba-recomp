@@ -173,6 +173,9 @@ static void sys_step_line(Cpu *c, int deliver) {
         cur_line = 0;
         ppu_frame_done();
         sys_frames++;
+#ifdef RT_GAME_OPTS
+        game_frame();
+#endif
         if (sys_frame_hook) sys_frame_hook(sys_frames);
         if (sys_max_frames && sys_frames >= sys_max_frames) {
             fprintf(stderr, "stopped after %u frames
@@ -219,6 +222,41 @@ void sys_state(StateIO *s) {
     if (!s->save) in_irq = 0;
 }
 
+int rt_opt_val[RT_MAX_OPTS];
+#ifdef RT_GAME_OPTS
+int rt_opt_count(void) { return game_opt_count < RT_MAX_OPTS ? game_opt_count : RT_MAX_OPTS; }
+const GameOpt *rt_opt_get(int i) { return i >= 0 && i < rt_opt_count() ? &game_opts[i] : NULL; }
+#else
+int rt_opt_count(void) { return 0; }
+const GameOpt *rt_opt_get(int i) { (void)i; return NULL; }
+#endif
+void rt_opt_set(int i, int v) {
+    const GameOpt *o = rt_opt_get(i);
+    if (!o) return;
+    rt_opt_val[i] = v < o->min ? o->min : v > o->max ? o->max : v;
+}
+int rt_opt_set_id(const char *id, int v) {
+    for (int i = 0; i < rt_opt_count(); i++) if (!strcmp(rt_opt_get(i)->id, id)) { rt_opt_set(i, v); return 1; }
+    return 0;
+}
+int rt_opt(const char *id) {
+    for (int i = 0; i < rt_opt_count(); i++) if (!strcmp(rt_opt_get(i)->id, id)) return rt_opt_val[i];
+    return 0;
+}
+void rt_opts_init(void) { for (int i = 0; i < rt_opt_count(); i++) rt_opt_val[i] = rt_opt_get(i)->def; }
+void rt_opts_args(int argc, char **argv) {
+    for (int i = 1; i + 1 < argc; i++) {
+        if (strcmp(argv[i], "--game-opt")) continue;
+        char id[64]; int v = 1;
+        const char *eq = strchr(argv[i + 1], '=');
+        size_t n = eq ? (size_t)(eq - argv[i + 1]) : strlen(argv[i + 1]);
+        if (n >= sizeof id) continue;
+        memcpy(id, argv[i + 1], n); id[n] = 0;
+        if (eq) v = atoi(eq + 1);
+        if (!rt_opt_set_id(id, v)) fprintf(stderr, "--game-opt: no option called %s\n", id);
+    }
+}
+
 void rt_game_init(const char *dir, const char *lang) {
 #ifdef RT_GAME
     game_init(rt_rom, rt_rom_len, dir, lang);
@@ -233,5 +271,7 @@ void rt_game_start(int argc, char **argv) {
         if (!strcmp(argv[i], "--game-dir")) dir = argv[i + 1];
         else if (!strcmp(argv[i], "--language")) lang = argv[i + 1];
     }
+    rt_opts_init();
+    rt_opts_args(argc, argv);
     rt_game_init(dir, lang);
 }

@@ -264,6 +264,9 @@ pub fn build(o: &Options, ui: &dyn Ui) -> Result<(PathBuf, Game), Failure> {
         let own = game_sources(game);
         if !own.is_empty() {
             cmd.arg("-DRT_GAME");
+            if own.iter().any(|f| f.file_stem().is_some_and(|n| n == "options")) {
+                cmd.arg("-DRT_GAME_OPTS"); // games/<id>/options.c lists game_opts[] and game_frame() (see gba_sys.h)
+            }
             for f in &own {
                 cmd.arg(f);
             }

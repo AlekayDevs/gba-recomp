@@ -41,6 +41,24 @@ extern u32 sys_max_frames;
  * game_init(rom, len, folder of the game's files, language such as "es" or "" for the original). The ROM on disk is never touched.
  * rt_game_start reads --game-dir DIR and --language L from the command line and calls it. */
 void rt_game_start(int argc, char **argv);
+/* Game options: the game's own C (games/<id>/options.c, built with -DRT_GAME_OPTS) lists them in game_opts[] and may poke the
+ * machine each frame in game_frame(); the player's menu shows them in "Extras", they live in config.ini (opt_<id>=) and on the
+ * command line (--game-opt id=value). The game's code asks for one with rt_opt("id"). Toggles have min 0 and max 1. */
+typedef struct { const char *id, *name, *name_es, *desc, *desc_es; int def, min, max; } GameOpt;
+#define RT_MAX_OPTS 32
+extern int rt_opt_val[RT_MAX_OPTS];
+int rt_opt(const char *id);              /* the value of an option (0 when there is no such option) */
+int rt_opt_count(void);
+const GameOpt *rt_opt_get(int i);        /* NULL past the last */
+void rt_opt_set(int i, int value);       /* clamped to the option's range */
+int rt_opt_set_id(const char *id, int value); /* 1 if the option exists */
+void rt_opts_init(void);                 /* every option to its default */
+void rt_opts_args(int argc, char **argv); /* --game-opt id=value */
+#ifdef RT_GAME_OPTS
+extern const GameOpt game_opts[];
+extern const int game_opt_count;
+void game_frame(void);                   /* once per frame, between frames: may read and write memory */
+#endif
 void rt_game_init(const char *game_dir, const char *language); /* the same with the values given (the player's menu calls it again after restoring the ROM image) */
 #ifdef RT_GAME
 void game_init(uint8_t *rom, u32 len, const char *game_dir, const char *language);

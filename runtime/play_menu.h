@@ -66,6 +66,7 @@ static void cfg_load(void) {
             }
         }
         else if (!strcmp(line, "rewind")) cfg.rewind = atoi(v) != 0;
+        else if (!strncmp(line, "opt_", 4)) rt_opt_set_id(line + 4, atoi(v));
         else if (!strcmp(line, "volume")) { cfg.volume = atoi(v); if (cfg.volume < 0) cfg.volume = 0; if (cfg.volume > 100) cfg.volume = 100; }
     }
     fclose(f);
@@ -76,6 +77,7 @@ static void cfg_save(void) {
     if (!f) return;
     fprintf(f, "# Options of the player. Edit by hand or from the menu (F1).\nlanguage=%s\nscaling=%s\nsmooth=%d\nfullscreen=%d\nvolume=%d\nrewind=%d\n",
             langs[cfg.lang].code, cfg.fit ? "fit" : "integer", cfg.smooth, cfg.fullscreen, cfg.volume, cfg.rewind);
+    for (int i = 0; i < rt_opt_count(); i++) fprintf(f, "opt_%s=%d\n", rt_opt_get(i)->id, rt_opt_val[i]);
     for (int i = 0; i < 10; i++) fprintf(f, "key_%s=%s\npad_%s=%d\n", gba_btn[i], SDL_GetScancodeName((SDL_Scancode)kb[i]), gba_btn[i], pb[i]);
     fclose(f);
 }
@@ -142,7 +144,7 @@ static const char *tr(const char *s) {
         {"Softens the edges of the scaled picture.", "Suaviza los bordes de la imagen ampliada."},
         {"Switches between a window and the whole screen (F11).", "Alterna entre ventana y pantalla completa (F11)."},
         {"Volume of the game's sound.", "Volumen del sonido del juego."},
-        {"Controls", "Controles"}, {"States", "Estados"}, {"Slot", "Ranura"}, {"Save state", "Guardar estado"}, {"Load state", "Cargar estado"}, {"Rewind", "Rebobinar"},
+        {"Controls", "Controles"}, {"Extras", "Extras"}, {"States", "Estados"}, {"Slot", "Ranura"}, {"Save state", "Guardar estado"}, {"Load state", "Cargar estado"}, {"Rewind", "Rebobinar"},
         {"Hold R (L3 on a controller) to go back in time, up to a minute. Keeping the history costs a little processor time.", "Mant\xC3\xA9n R (L3 en el mando) para volver atr\xC3\xA1s en el tiempo, hasta un minuto. Guardar el historial gasta un poco de procesador."},
         {"Which of the 9 slots Save and Load use (the keys 1 to 9 choose it too).", "Qu\xC3\xA9 ranura de las 9 usan Guardar y Cargar (las teclas 1 a 9 tambi\xC3\xA9n la eligen)."},
         {"Saves the game as it is (F5). It is written at the next step of the game\x27s main loop.", "Guarda el juego tal como est\xC3\xA1 (F5). Se escribe en el siguiente paso del bucle principal."},
@@ -195,14 +197,26 @@ static const Row rows_state[] = {
     {"Load state", "Goes back to the state saved in this slot (F8). Your saved game in the cartridge is not touched."},
     {"Rewind", "Hold R (L3 on a controller) to go back in time, up to a minute. Keeping the history costs a little processor time."},
 };
+#define TAB_OPTS 5 /* the options of the game: its rows come from game_opts[] */
 static const Category cats[] = {
     {"Game", rows_game, 4}, {"Video", rows_video, 3}, {"Audio", rows_audio, 1}, {"Controls", rows_ctl, 11}, {"States", rows_state, 4},
+    {"Extras", NULL, 0},
 };
-#define N_CATS 5
+#define N_CATS_MAX 6
+static int n_cats = 5; /* the sixth, Extras, only when the game has options */
+static int menu_tab;
+static void menu_init(void) { if (rt_opt_count() > 0) n_cats = 6; menu_tab %= n_cats; }
+static const char *opt_text(int i, int desc) {
+    const GameOpt *o = rt_opt_get(i);
+    if (!o) return "";
+    if (cfg.lang == 1) { const char *es = desc ? o->desc_es : o->name_es; if (es && es[0]) return es; }
+    return desc ? o->desc : o->name;
+}
+static int cat_rows(int t) { return t == TAB_OPTS ? rt_opt_count() : cats[t].n; }
 static int menu_close_req; /* an action that closes the menu (saving or loading a state) */
 static int menu_capture = -1; /* the row waiting for a key or a button, or -1 */
 
-static int menu_tab, menu_focus /* 0 sidebar, 1 rows */, menu_sel[N_CATS], menu_off[N_CATS], menu_dirty = 1;
+static int menu_focus /* 0 sidebar, 1 rows */, menu_sel[N_CATS_MAX], menu_off[N_CATS_MAX], menu_dirty = 1;
 
 static const char *pad_name(int b) {
     static const char *n[] = {"A", "B", "X", "Y", "Back", "Guide", "Start", "L3", "R3", "LB", "RB", "D\xE2\x86\x91", "D\xE2\x86\x93", "D\xE2\x86\x90", "D\xE2\x86\x92"};
@@ -224,7 +238,11 @@ static void row_value(int tab, int r, char *val, size_t n, int *kind, int *pct) 
     case 401: case 402: *kind = 0; break;
     case 403: snprintf(val, n, "%s", tr(cfg.rewind ? "On" : "Off")); break;
     default:
-        if (tab == 3 && r < 10) {
+        if (tab == TAB_OPTS) {
+            const GameOpt *o = rt_opt_get(r);
+            if (o && o->min == 0 && o->max == 1) snprintf(val, n, "%s", tr(rt_opt_val[r] ? "On" : "Off"));
+            else if (o) snprintf(val, n, "%d", rt_opt_val[r]);
+        } else if (tab == 3 && r < 10) {
             *kind = 3;
             if (menu_capture == r) snprintf(val, n, "...");
             else snprintf(val, n, "%s · %s", SDL_GetScancodeName((SDL_Scancode)kb[ctl_order[r]]), pad_name(pb[ctl_order[r]]));
@@ -254,7 +272,10 @@ static void menu_change(int dir) { /* dir: -1, +1, or 0 for Enter */
             menu_close_req = 1;
         }
         break;
-    default: if (menu_tab == 3 && s < 10 && dir == 0) menu_capture = s; break;
+    default:
+        if (menu_tab == TAB_OPTS) { const GameOpt *o = rt_opt_get(s); if (o) rt_opt_set(s, o->max == 1 && o->min == 0 ? !rt_opt_val[s] : rt_opt_val[s] + d); }
+        else if (menu_tab == 3 && s < 10 && dir == 0) menu_capture = s;
+        break;
     }
     menu_dirty = 1;
 }
@@ -323,7 +344,7 @@ static void drawer_draw(Canvas *c) {
     ui_rule(c, 8, 44, w - 18);
     /* the sidebar */
     int sw = 84, top = 54;
-    for (int t = 0; t < N_CATS; t++) {
+    for (int t = 0; t < n_cats; t++) {
         int y = top + t * 22, on = t == menu_tab;
         if (on) {
             cv_rect(c, 6, y, sw - 4, 18, ui_mix(th_panel, th_gold, menu_focus ? 1 : 2, 6));
@@ -339,13 +360,14 @@ static void drawer_draw(Canvas *c) {
     int *off = &menu_off[menu_tab], sel = menu_sel[menu_tab];
     if (sel < *off) *off = sel;
     if (sel >= *off + vis) *off = sel - vis + 1;
-    for (int r = *off; r < cat->n && r < *off + vis; r++) {
+    int nrows = cat_rows(menu_tab);
+    for (int r = *off; r < nrows && r < *off + vis; r++) {
         int y = top + (r - *off) * rh, on = menu_focus && r == sel;
         char val[48]; int kind, pct;
         row_value(menu_tab, r, val, sizeof val, &kind, &pct);
         if (on) { cv_rect(c, px - 6, y, pw + 8, rh - 2, ui_mix(th_panel, th_gold, 1, 6)); ui_cursor(c, px - 4, y + 5); }
         else if (r == sel) cv_rect(c, px - 6, y, 2, rh - 2, ui_mix(th_gold, th_bg, 1, 2));
-        text_draw(c, px + 8, y + 5, tr(cat->rows[r].label), on ? th_ink : dim, 1);
+        text_draw(c, px + 8, y + 5, menu_tab == TAB_OPTS ? opt_text(r, 0) : tr(cat->rows[r].label), on ? th_ink : dim, 1);
         if (kind == 2) {
             ui_slider(c, px + pw - 74, y + 6, 46, pct);
             text_right(c, px + pw - 2, y + 5, val, on ? th_gold : th_ink);
@@ -356,13 +378,13 @@ static void drawer_draw(Canvas *c) {
             if (on) { ui_arrow(c, px + pw - 12 - text_w(val) - 8, y + 6, -1, th_gold); ui_arrow(c, px + pw - 9, y + 6, 1, th_gold); }
         }
     }
-    if (cat->n > vis) { /* there are more rows than fit */
+    if (nrows > vis) { /* there are more rows than fit */
         if (*off > 0) ui_arrow(c, w - 12, top - 2, -1, th_gold);
-        if (*off + vis < cat->n) ui_arrow(c, w - 12, top + vis * rh - 6, 1, th_gold);
+        if (*off + vis < nrows) ui_arrow(c, w - 12, top + vis * rh - 6, 1, th_gold);
     }
     /* what the chosen row does, and the keys */
     ui_rule(c, 8, h - 56, w - 18);
-    text_wrap(c, 12, h - 48, tr(menu_capture >= 0 ? "Press a key or a controller button. Esc cancels." : cat->rows[sel].desc), w - 26, 3, menu_capture >= 0 ? th_gold : dim);
+    text_wrap(c, 12, h - 48, menu_capture >= 0 ? tr("Press a key or a controller button. Esc cancels.") : menu_tab == TAB_OPTS ? opt_text(sel, 1) : tr(cat->rows[sel].desc), w - 26, 3, menu_capture >= 0 ? th_gold : dim);
     text_draw(c, 12, h - 14, tr("Up Down: choose   Enter: change   Esc: back"), ui_mix(th_ink, th_bg, 1, 2), 1);
 }
 
@@ -426,23 +448,23 @@ static void menu_compose(uint32_t *win, int ww, int wh) {
 /* ---- the keys ---- */
 
 static void menu_key(SDL_Keycode k) {
-    const Category *cat = &cats[menu_tab];
+    int rows = cat_rows(menu_tab);
     menu_dirty = 1;
     switch (k) {
     case SDLK_UP:
-        if (menu_focus) menu_sel[menu_tab] = (menu_sel[menu_tab] + cat->n - 1) % cat->n;
-        else menu_tab = (menu_tab + N_CATS - 1) % N_CATS;
+        if (menu_focus) { if (rows) menu_sel[menu_tab] = (menu_sel[menu_tab] + rows - 1) % rows; }
+        else menu_tab = (menu_tab + n_cats - 1) % n_cats;
         break;
     case SDLK_DOWN:
-        if (menu_focus) menu_sel[menu_tab] = (menu_sel[menu_tab] + 1) % cat->n;
-        else menu_tab = (menu_tab + 1) % N_CATS;
+        if (menu_focus) { if (rows) menu_sel[menu_tab] = (menu_sel[menu_tab] + 1) % rows; }
+        else menu_tab = (menu_tab + 1) % n_cats;
         break;
     case SDLK_LEFT: if (menu_focus) menu_change(-1); break;
     case SDLK_RIGHT: if (menu_focus) menu_change(1); else menu_focus = 1; break;
     case SDLK_RETURN: case SDLK_SPACE: if (menu_focus) menu_change(0); else menu_focus = 1; break;
     case SDLK_BACKSPACE: menu_focus = 0; break;
-    case SDLK_TAB: case SDLK_e: case SDLK_PAGEDOWN: menu_tab = (menu_tab + 1) % N_CATS; break;
-    case SDLK_q: case SDLK_PAGEUP: menu_tab = (menu_tab + N_CATS - 1) % N_CATS; break;
+    case SDLK_TAB: case SDLK_e: case SDLK_PAGEDOWN: menu_tab = (menu_tab + 1) % n_cats; break;
+    case SDLK_q: case SDLK_PAGEUP: menu_tab = (menu_tab + n_cats - 1) % n_cats; break;
     }
 }
 
