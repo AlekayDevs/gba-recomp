@@ -140,7 +140,10 @@ static const char *tr(const char *s) {
         {"Softens the edges of the scaled picture.", "Suaviza los bordes de la imagen ampliada."},
         {"Switches between a window and the whole screen (F11).", "Alterna entre ventana y pantalla completa (F11)."},
         {"Volume of the game's sound.", "Volumen del sonido del juego."},
-        {"Controls", "Controles"}, {"Up", "Arriba"}, {"Down", "Abajo"}, {"Left", "Izquierda"}, {"Right", "Derecha"}, {"Restore controls", "Restaurar controles"},
+        {"Controls", "Controles"}, {"States", "Estados"}, {"Slot", "Ranura"}, {"Save state", "Guardar estado"}, {"Load state", "Cargar estado"},
+        {"Which of the 9 slots Save and Load use (the keys 1 to 9 choose it too).", "Qu\xC3\xA9 ranura de las 9 usan Guardar y Cargar (las teclas 1 a 9 tambi\xC3\xA9n la eligen)."},
+        {"Saves the game as it is (F5). It is written at the next step of the game\x27s main loop.", "Guarda el juego tal como est\xC3\xA1 (F5). Se escribe en el siguiente paso del bucle principal."},
+        {"Goes back to the state saved in this slot (F8). Your saved game in the cartridge is not touched.", "Vuelve al estado guardado en esta ranura (F8). La partida del cartucho no se toca."}, {"Up", "Arriba"}, {"Down", "Abajo"}, {"Left", "Izquierda"}, {"Right", "Derecha"}, {"Restore controls", "Restaurar controles"},
         {"Choose the key and the controller button for this one. Enter, then press what you want; Esc cancels.",
          "Elige la tecla y el bot\xC3\xB3n del mando de este. Intro y luego pulsa lo que quieras; Esc cancela."},
         {"Puts every key and button back to its default.", "Devuelve todas las teclas y botones a su valor."},
@@ -183,10 +186,16 @@ static const Row rows_ctl[] = {
     {"Select", "Choose the key and the controller button for this one. Enter, then press what you want; Esc cancels."},
     {"Restore controls", "Puts every key and button back to its default."},
 };
-static const Category cats[] = {
-    {"Game", rows_game, 4}, {"Video", rows_video, 3}, {"Audio", rows_audio, 1}, {"Controls", rows_ctl, 11},
+static const Row rows_state[] = {
+    {"Slot", "Which of the 9 slots Save and Load use (the keys 1 to 9 choose it too)."},
+    {"Save state", "Saves the game as it is (F5). It is written at the next step of the game's main loop."},
+    {"Load state", "Goes back to the state saved in this slot (F8). Your saved game in the cartridge is not touched."},
 };
-#define N_CATS 4
+static const Category cats[] = {
+    {"Game", rows_game, 4}, {"Video", rows_video, 3}, {"Audio", rows_audio, 1}, {"Controls", rows_ctl, 11}, {"States", rows_state, 3},
+};
+#define N_CATS 5
+static int menu_close_req; /* an action that closes the menu (saving or loading a state) */
 static int menu_capture = -1; /* the row waiting for a key or a button, or -1 */
 
 static int menu_tab, menu_focus /* 0 sidebar, 1 rows */, menu_sel[N_CATS], menu_off[N_CATS], menu_dirty = 1;
@@ -207,6 +216,8 @@ static void row_value(int tab, int r, char *val, size_t n, int *kind, int *pct) 
     case 102: snprintf(val, n, "%s", tr(cfg.fullscreen ? "On" : "Off")); break;
     case 200: *kind = 2; *pct = cfg.volume; snprintf(val, n, "%d%%", cfg.volume); break;
     case 310: *kind = 0; break;
+    case 400: snprintf(val, n, "%d", slot); break;
+    case 401: case 402: *kind = 0; break;
     default:
         if (tab == 3 && r < 10) {
             *kind = 3;
@@ -229,6 +240,14 @@ static void menu_change(int dir) { /* dir: -1, +1, or 0 for Enter */
     case 102: cfg.fullscreen = !cfg.fullscreen; apply_video(); break;
     case 200: cfg.volume += 10 * d; if (cfg.volume < 0) cfg.volume = 0; if (cfg.volume > 100) cfg.volume = 100; break;
     case 310: if (dir == 0) bind_defaults(); break;
+    case 400: slot = (slot - 1 + d + 9) % 9 + 1; break;
+    case 401: case 402:
+        if (dir == 0 && !rt_state_req) {
+            snprintf(rt_state_path, sizeof rt_state_path, "%s.s%d", state_base, slot);
+            rt_state_req = s == 1 ? 1 : 2;
+            menu_close_req = 1;
+        }
+        break;
     default: if (menu_tab == 3 && s < 10 && dir == 0) menu_capture = s; break;
     }
     menu_dirty = 1;
@@ -427,8 +446,8 @@ static int menu_run(void) {
     static uint32_t *win; static size_t cap;
     if (audio) SDL_ClearQueuedAudio(audio);
     SDL_RenderSetLogicalSize(ren, 0, 0);
-    menu_quit = 0; menu_dirty = 1;
-    for (int open = 1; open && !menu_quit;) {
+    menu_quit = 0; menu_dirty = 1; menu_close_req = 0;
+    for (int open = 1; open && !menu_quit && !menu_close_req;) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) menu_quit = 1;
