@@ -1,6 +1,6 @@
 //! `gba-port`: identifies the game, builds it the first time (cached) and plays it.
 //!   gba-port                          the launcher window (Windows): choose the ROM once, then Play
-//!   gba-port <rom.gba> [--games DIR] [--cache DIR] [--no-launch] [-- <player args>]
+//!   gba-port <rom.gba> [--games DIR] [--cache DIR] [--no-launch] [--language es|en|default] [-- <player args>]
 //! Without a ROM in a terminal it plays the last one. Exit codes: 0 ok, 1 failed, 2 usage, 3 unknown ROM,
 //! 4 no compiler or SDL2, 5 build failed.
 //! On Windows the program belongs to the windows subsystem (no console on a double click); started from a terminal it
@@ -22,12 +22,14 @@ fn main() {
     let mut rom: Option<PathBuf> = None;
     let (mut games, mut cache, mut launch) = (None, None, true);
     let mut game_args: Vec<String> = Vec::new();
+    let mut language: Option<String> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--games" => games = it.next().map(PathBuf::from),
             "--cache" => cache = it.next().map(PathBuf::from),
             "--no-launch" => launch = false,
+            "--language" => language = it.next().cloned(),
             "--" => game_args.extend(it.by_ref().cloned()),
             "-h" | "--help" => usage(),
             s if s.starts_with('-') => usage(),
@@ -40,6 +42,9 @@ fn main() {
         std::process::exit(1)
     };
     let cache = cache.unwrap_or_else(port::cache_dir);
+    if let Some(l) = &language {
+        port::set_language(&cache, l);
+    }
     // the profiles: --games, else games/ of the current folder, else games/ of the package
     let games_dir = games.unwrap_or_else(|| {
         let cwd = PathBuf::from("games");
@@ -90,6 +95,6 @@ fn update_from_console() -> i32 {
 }
 
 fn usage() -> ! {
-    eprintln!("gba-port [<rom.gba>] [--games DIR] [--cache DIR] [--no-launch] [-- <player args>]\n  without a ROM, plays the last one (the launcher window opens when there is no terminal)");
+    eprintln!("gba-port [<rom.gba>] [--games DIR] [--cache DIR] [--no-launch] [--language es|en|default] [-- <player args>]\n  without a ROM, plays the last one (the launcher window opens when there is no terminal)");
     std::process::exit(2)
 }
