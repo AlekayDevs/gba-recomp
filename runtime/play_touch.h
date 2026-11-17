@@ -1,3 +1,4 @@
+#include <math.h>
 /* Touch controls for the Android player, drawn over the picture: a D-pad, A and B, L and R, Start and Select, and three small
    buttons (SAVE and LOAD of the current slot, REWIND held). Included by play.c on Android only. Clean-room: own layout and drawing.
    The layout follows the size of the window (u = a sixth of the shorter side); fingers are tracked by id, so several buttons work at once. */
@@ -19,9 +20,9 @@ static void touch_layout(void) {
     SDL_GetRendererOutputSize(ren, &tw, &th);
     tu = (tw < th ? tw : th) / 8.5f;
     TouchBtn *b = tbtn;
-    b[TB_DPAD].cx = 2.3f * tu; b[TB_DPAD].cy = th - 2.3f * tu; b[TB_DPAD].w = b[TB_DPAD].h = 2.2f * tu; /* half-size of the pad */
-    b[TB_A].cx = tw - 1.5f * tu; b[TB_A].cy = th - 2.7f * tu; b[TB_A].w = b[TB_A].h = 1.0f * tu; /* radius */
-    b[TB_B].cx = tw - 3.2f * tu; b[TB_B].cy = th - 1.5f * tu; b[TB_B].w = b[TB_B].h = 1.0f * tu;
+    b[TB_DPAD].cx = 1.9f * tu; b[TB_DPAD].cy = th - 2.0f * tu; b[TB_DPAD].w = b[TB_DPAD].h = 1.55f * tu; /* half-size of the pad */
+    b[TB_A].cx = tw - 1.3f * tu; b[TB_A].cy = th - 2.7f * tu; b[TB_A].w = b[TB_A].h = 0.85f * tu; /* radius */
+    b[TB_B].cx = tw - 2.9f * tu; b[TB_B].cy = th - 1.4f * tu; b[TB_B].w = b[TB_B].h = 0.85f * tu;
     b[TB_L].cx = 1.4f * tu; b[TB_L].cy = 0.55f * tu; b[TB_L].w = 2.2f * tu; b[TB_L].h = 0.9f * tu;
     b[TB_R].cx = tw - 1.4f * tu; b[TB_R].cy = 0.55f * tu; b[TB_R].w = 2.2f * tu; b[TB_R].h = 0.9f * tu;
     b[TB_SELECT].cx = tw / 2.0f - 1.1f * tu; b[TB_SELECT].cy = th - 0.45f * tu; b[TB_SELECT].w = 1.8f * tu; b[TB_SELECT].h = 0.7f * tu;
@@ -38,7 +39,7 @@ static void touch_init(void) {
         static uint8_t buf[200 * 12 * 3];
         memset(buf, 0, sizeof buf);
         Canvas c = {buf, w, h};
-        text_draw(&c, 2, 1, s, UI_TEXT, 0);
+        text_draw(&c, 2, 1, s, th_gold, 0);
         SDL_Texture *t = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STATIC, w, h);
         if (!t) continue;
         SDL_UpdateTexture(t, NULL, buf, w * 3);
@@ -110,40 +111,92 @@ static void touch_event(const SDL_Event *e) {
     tfinger[slot_i].on = 1; tfinger[slot_i].id = e->tfinger.fingerId; tfinger[slot_i].x = e->tfinger.x; tfinger[slot_i].y = e->tfinger.y;
 }
 
+/* ---- drawing: round buttons with a gold ring, a cross with a gold edge and pill-shaped shoulder buttons, in the colours of the theme ---- */
+static void tcol(uint32_t c, int a) { SDL_SetRenderDrawColor(ren, c >> 16, (c >> 8) & 255, c & 255, a); }
+
+/* how far the row j of a rounded box (height h, corner radius r) is cut in from the left edge */
+static int tinset(int j, int h, int r) {
+    float dy = j < r ? r - j - 0.5f : j >= h - r ? j - (h - r) + 0.5f : 0;
+    if (dy >= r) return r;
+    return r - (int)sqrtf((float)r * r - dy * dy);
+}
+
+/* a rounded box (a circle when w == h, a pill when r = h/2); t > 0 draws only a ring of that thickness */
+static void tround(int x, int y, int w, int h, int r, int t) {
+    for (int j = 0; j < h; j++) {
+        int o = tinset(j, h, r);
+        if (t <= 0 || j < t || j >= h - t) {
+            SDL_Rect q = {x + o, y + j, w - 2 * o, 1};
+            SDL_RenderFillRect(ren, &q);
+        } else {
+            int in = t + tinset(j - t, h - 2 * t, r > t ? r - t : 0);
+            if (in < o + t) in = o + t;
+            SDL_Rect a = {x + o, y + j, in - o, 1}, b = {x + w - in, y + j, in - o, 1};
+            SDL_RenderFillRect(ren, &a); SDL_RenderFillRect(ren, &b);
+        }
+    }
+}
+
+static void tlabel(const TouchBtn *b, int cx, int cy, int hh, int down) {
+    if (!b->tex) return;
+    int sc = (int)(hh * 0.42f / b->lh); if (sc < 1) sc = 1;
+    int lw = b->lw * sc, lh = b->lh * sc;
+    SDL_Rect d = {cx - lw / 2, cy - lh / 2, lw, lh};
+    SDL_SetTextureAlphaMod(b->tex, down ? 255 : 190);
+    SDL_RenderCopy(ren, b->tex, NULL, &d);
+}
+
 static void touch_draw(u32 held) {
     touch_layout();
     SDL_RenderSetLogicalSize(ren, 0, 0);
     SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+    int ring = (int)(tu * 0.07f); if (ring < 2) ring = 2;
     for (int i = 0; i < TB_N; i++) {
         TouchBtn *b = &tbtn[i];
         int down = 0;
         if (i == TB_DPAD) down = (held & 0xF0) != 0;
         else if (i == TB_REWIND) down = touch_rewind;
         else if (b->mask) down = (held & b->mask) != 0;
-        int a = down ? 140 : 38;
-        SDL_SetRenderDrawColor(ren, 20, 24, 40, a);
-        if (b->shape == 2) {
-            float s = b->w, t = 0.62f * b->w; /* a cross */
-            SDL_Rect h = {(int)(b->cx - s), (int)(b->cy - t / 3), (int)(2 * s), (int)(2 * t / 3)};
-            SDL_Rect v = {(int)(b->cx - t / 3), (int)(b->cy - s), (int)(2 * t / 3), (int)(2 * s)};
-            SDL_RenderFillRect(ren, &h); SDL_RenderFillRect(ren, &v);
-            SDL_SetRenderDrawColor(ren, 232, 197, 71, 90);
-            SDL_RenderDrawRect(ren, &h); SDL_RenderDrawRect(ren, &v);
+        int small = i >= TB_SAVE;                 /* the three quick buttons stay discreet */
+        int fa = down ? 190 : (small ? 60 : 95);   /* body */
+        int ra = down ? 255 : (small ? 120 : 190); /* ring */
+        uint32_t body = down ? ui_mix(th_panel, th_gold, 1, 2) : th_bg;
+        if (b->shape == 2) { /* the cross */
+            float s = b->w, a = 0.62f * s;
+            int cx = (int)b->cx, cy = (int)b->cy, S = (int)s, A = (int)(a / 2);
+            struct { int x, y, w, h; u32 bit; } arm[5] = {
+                {cx - A, cy - S, 2 * A, S - A, 64}, {cx - A, cy + A, 2 * A, S - A, 128},
+                {cx - S, cy - A, S - A, 2 * A, 32}, {cx + A, cy - A, S - A, 2 * A, 16}, {cx - A, cy - A, 2 * A, 2 * A, 0}};
+            for (int k = 0; k < 5; k++) {
+                int on = arm[k].bit && (held & arm[k].bit);
+                if (on) tcol(th_gold, 210); else tcol(th_bg, fa);
+                SDL_Rect r = {arm[k].x, arm[k].y, arm[k].w, arm[k].h};
+                SDL_RenderFillRect(ren, &r);
+            }
+            SDL_Point pts[13] = {{cx - A, cy - S}, {cx + A, cy - S}, {cx + A, cy - A}, {cx + S, cy - A}, {cx + S, cy + A}, {cx + A, cy + A},
+                                 {cx + A, cy + S}, {cx - A, cy + S}, {cx - A, cy + A}, {cx - S, cy + A}, {cx - S, cy - A}, {cx - A, cy - A}, {cx - A, cy - S}};
+            tcol(th_gold, ra);
+            for (int k = 0; k < ring; k++) {
+                SDL_Point q[13];
+                for (int m = 0; m < 13; m++) { q[m] = pts[m]; q[m].x += (pts[m].x < cx ? k : -k); q[m].y += (pts[m].y < cy ? k : -k); }
+                SDL_RenderDrawLines(ren, q, 13);
+            }
             continue;
         }
-        SDL_Rect r;
-        if (b->shape == 0) { float rr = b->w; r = (SDL_Rect){(int)(b->cx - rr), (int)(b->cy - rr), (int)(2 * rr), (int)(2 * rr)}; }
-        else r = (SDL_Rect){(int)(b->cx - b->w / 2), (int)(b->cy - b->h / 2), (int)b->w, (int)b->h};
-        SDL_RenderFillRect(ren, &r);
-        SDL_SetRenderDrawColor(ren, 232, 197, 71, 90);
-        SDL_RenderDrawRect(ren, &r);
-        if (b->tex) {
-            int sc = (int)(r.h * 0.32f / b->lh); if (sc < 1) sc = 1;
-            int lw = b->lw * sc, lh = b->lh * sc;
-            SDL_Rect d = {r.x + (r.w - lw) / 2, r.y + (r.h - lh) / 2, lw, lh};
-            SDL_SetTextureAlphaMod(b->tex, down ? 255 : 150);
-            SDL_RenderCopy(ren, b->tex, NULL, &d);
+        int x, y, w, h, r;
+        if (b->shape == 0) { w = h = (int)(2 * b->w); r = w / 2; }
+        else { w = (int)b->w; h = (int)b->h; r = h / 2; }
+        x = (int)(b->cx - w / 2.0f); y = (int)(b->cy - h / 2.0f);
+        tcol(body, fa);
+        tround(x, y, w, h, r, 0);
+        tcol(th_gold, ra);
+        tround(x, y, w, h, r, ring);
+        if (b->shape == 0) { /* a second thin ring inside, like the buttons of the console */
+            int g = ring * 3;
+            tcol(th_gold, ra / 3);
+            tround(x + g, y + g, w - 2 * g, h - 2 * g, r - g, 1);
         }
+        tlabel(b, x + w / 2, y + h / 2, b->shape == 0 ? (int)(h * 1.1f) : h, down);
     }
     SDL_RenderSetLogicalSize(ren, 240, 160);
 }
