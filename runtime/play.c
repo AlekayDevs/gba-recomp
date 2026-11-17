@@ -110,6 +110,7 @@ static void on_frame(u32 frame) {
     } else
     SDL_UpdateTexture(tex, NULL, ppu_frame, 240 * 4);
     SDL_RenderClear(ren);
+    if (cfg.borders) draw_bars();
     SDL_RenderCopy(ren, tex, NULL, NULL);
     SDL_RenderPresent(ren);
     /* pace: 280896 cycles at 16.78 MHz per frame; Tab = fast forward */

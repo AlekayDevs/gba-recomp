@@ -10,7 +10,7 @@
  * Settings live in config.ini (in the saves folder), apply at once and are saved when the menu closes. */
 #include "play_ui.h"
 
-typedef struct { int lang; int fit; int smooth; int fullscreen; int volume; int rewind; } Settings; /* lang: index into langs[] */
+typedef struct { int lang; int fit; int smooth; int fullscreen; int volume; int rewind; int borders; } Settings; /* lang: index into langs[] */
 static Settings cfg;
 /* The controls: for each button of the GBA (bit i of KEYINPUT: A B Select Start Right Left Up Down R L) a keyboard
  * scancode and a controller button, one of each. Kept in config.ini as key_<name> (scancode name) and pad_<name> (number). */
@@ -36,7 +36,7 @@ static int emblem_ok;
 static const struct { const char *code, *name; } langs[] = { {"", "English"}, {"es", "Espa\xC3\xB1ol"} };
 #define N_LANGS 2
 
-static void cfg_defaults(void) { cfg.lang = 0; cfg.fit = 0; cfg.smooth = 0; cfg.fullscreen = 0; cfg.volume = 100; cfg.rewind = 1; }
+static void cfg_defaults(void) { cfg.lang = 0; cfg.fit = 0; cfg.smooth = 0; cfg.fullscreen = 0; cfg.volume = 100; cfg.rewind = 1; cfg.borders = 1; }
 
 static int lang_index(const char *code) {
     for (int i = 0; i < N_LANGS; i++) if (!strcmp(langs[i].code, code)) return i;
@@ -58,6 +58,7 @@ static void cfg_load(void) {
         if (!strcmp(line, "language")) cfg.lang = lang_index(v);
         else if (!strcmp(line, "scaling")) cfg.fit = !strcmp(v, "fit");
         else if (!strcmp(line, "smooth")) cfg.smooth = atoi(v) != 0;
+        else if (!strcmp(line, "borders")) cfg.borders = atoi(v) != 0;
         else if (!strcmp(line, "fullscreen")) cfg.fullscreen = atoi(v) != 0;
         else if (!strncmp(line, "key_", 4) || !strncmp(line, "pad_", 4)) {
             for (int i = 0; i < 10; i++) if (!strcmp(line + 4, gba_btn[i])) {
@@ -75,8 +76,8 @@ static void cfg_load(void) {
 static void cfg_save(void) {
     FILE *f = cfg_path[0] ? fopen(cfg_path, "w") : NULL;
     if (!f) return;
-    fprintf(f, "# Options of the player. Edit by hand or from the menu (F1).\nlanguage=%s\nscaling=%s\nsmooth=%d\nfullscreen=%d\nvolume=%d\nrewind=%d\n",
-            langs[cfg.lang].code, cfg.fit ? "fit" : "integer", cfg.smooth, cfg.fullscreen, cfg.volume, cfg.rewind);
+    fprintf(f, "# Options of the player. Edit by hand or from the menu (F1).\nlanguage=%s\nscaling=%s\nsmooth=%d\nfullscreen=%d\nvolume=%d\nrewind=%d\nborders=%d\n",
+            langs[cfg.lang].code, cfg.fit ? "fit" : "integer", cfg.smooth, cfg.fullscreen, cfg.volume, cfg.rewind, cfg.borders);
     for (int i = 0; i < rt_opt_count(); i++) fprintf(f, "opt_%s=%d\n", rt_opt_get(i)->id, rt_opt_val[i]);
     for (int i = 0; i < 10; i++) fprintf(f, "key_%s=%s\npad_%s=%d\n", gba_btn[i], SDL_GetScancodeName((SDL_Scancode)kb[i]), gba_btn[i], pb[i]);
     fclose(f);
@@ -118,6 +119,35 @@ static void apply_video(void) {
     make_texture();
 }
 
+/* The side bars: when the window is wider than the picture, the free space gets stripes in the colours of the theme and a thin
+   frame around the picture. Drawn in window pixels (no logical size), before the picture itself. */
+static void draw_bars(void) {
+    int ww, wh;
+    SDL_GetRendererOutputSize(ren, &ww, &wh);
+    double f = (double)ww / 240 < (double)wh / 160 ? (double)ww / 240 : (double)wh / 160;
+    if (!cfg.fit && f >= 1) f = (int)f;
+    int dw = (int)(240 * f), dh = (int)(160 * f), x0 = (ww - dw) / 2, y0 = (wh - dh) / 2;
+    if (x0 < 4 && y0 < 4) return;
+    SDL_RenderSetLogicalSize(ren, 0, 0);
+    SDL_SetRenderDrawColor(ren, th_bg >> 16, (th_bg >> 8) & 255, th_bg & 255, 255);
+    SDL_RenderClear(ren);
+    int step = (int)(24 * (f < 1 ? 1 : f) / 2) * 2 + 8;
+    SDL_SetRenderDrawColor(ren, th_panel >> 16, (th_panel >> 8) & 255, th_panel & 255, 255);
+    for (int x = x0 % step - step; x < ww; x += step) {
+        SDL_Rect r = {x, 0, step / 3, wh};
+        SDL_RenderFillRect(ren, &r);
+    }
+    SDL_SetRenderDrawColor(ren, th_gold >> 16, (th_gold >> 8) & 255, th_gold & 255, 255);
+    int t = f >= 3 ? 3 : 2;
+    SDL_Rect fr[2] = {{x0 - t, y0 - t, dw + 2 * t, dh + 2 * t}, {x0 - t - 4, y0 - t - 4, dw + 2 * t + 8, dh + 2 * t + 8}};
+    SDL_RenderDrawRect(ren, &fr[0]);
+    SDL_RenderDrawRect(ren, &fr[1]);
+    SDL_Rect pic = {x0, y0, dw, dh};
+    SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
+    SDL_RenderFillRect(ren, &pic);
+    SDL_RenderSetLogicalSize(ren, 240, 160);
+}
+
 /* The language is applied by putting the ROM back as it was, patching it again and soft-resetting the game. */
 static void apply_language(void) {
     rt_rewind_clear();
@@ -133,7 +163,7 @@ static const char *tr(const char *s) {
         {"Settings", "Ajustes"}, {"Game", "Juego"}, {"Video", "V\xC3\xAD" "deo"}, {"Audio", "Sonido"},
         {"Language", "Idioma"}, {"Restart the game", "Reiniciar el juego"}, {"Restore defaults", "Restaurar valores"}, {"Quit", "Salir"},
         {"Scaling", "Escalado"}, {"Whole", "Enteros"}, {"Fit", "Ajustado"},
-        {"Smoothing", "Suavizado"}, {"Full screen", "Pantalla completa"}, {"On", "S\xC3\xAD"}, {"Off", "No"}, {"Volume", "Volumen"},
+        {"Smoothing", "Suavizado"}, {"Full screen", "Pantalla completa"}, {"Side bars", "Barras laterales"}, {"On", "S\xC3\xAD"}, {"Off", "No"}, {"Volume", "Volumen"},
         {"Language of the game's text. Changing it restarts the game; your saved game is kept.",
          "Idioma del texto del juego. Cambiarlo reinicia el juego; la partida guardada se conserva."},
         {"Starts the game again from the title screen. The saved game is kept.", "Vuelve a empezar desde la pantalla de t\xC3\xADtulo. La partida guardada se conserva."},
@@ -143,6 +173,7 @@ static const char *tr(const char *s) {
          "Enteros mantiene los p\xC3\xADxeles iguales y la imagen n\xC3\xADtida; Ajustado llena la ventana, con p\xC3\xADxeles desiguales."},
         {"Softens the edges of the scaled picture.", "Suaviza los bordes de la imagen ampliada."},
         {"Switches between a window and the whole screen (F11).", "Alterna entre ventana y pantalla completa (F11)."},
+        {"Fills the space at the sides of the picture, on a wide window, with a pattern in the colours of the game.", "Llena el espacio a los lados de la imagen, en una ventana ancha, con un dibujo en los colores del juego."},
         {"Volume of the game's sound.", "Volumen del sonido del juego."},
         {"Controls", "Controles"}, {"Extras", "Extras"}, {"States", "Estados"}, {"Slot", "Ranura"}, {"Save state", "Guardar estado"}, {"Load state", "Cargar estado"}, {"Rewind", "Rebobinar"},
         {"Hold R (L3 on a controller) to go back in time, up to a minute. Keeping the history costs a little processor time.", "Mant\xC3\xA9n R (L3 en el mando) para volver atr\xC3\xA1s en el tiempo, hasta un minuto. Guardar el historial gasta un poco de procesador."},
@@ -174,6 +205,7 @@ static const Row rows_video[] = {
     {"Scaling", "Whole keeps every pixel the same size and the picture sharp; Fit fills the window, with uneven pixels."},
     {"Smoothing", "Softens the edges of the scaled picture."},
     {"Full screen", "Switches between a window and the whole screen (F11)."},
+    {"Side bars", "Fills the space at the sides of the picture, on a wide window, with a pattern in the colours of the game."},
 };
 static const Row rows_audio[] = { {"Volume", "Volume of the game's sound."} };
 /* the buttons in the order of the menu: the index into kb[] and pb[] of row r */
@@ -199,7 +231,7 @@ static const Row rows_state[] = {
 };
 #define TAB_OPTS 5 /* the options of the game: its rows come from game_opts[] */
 static const Category cats[] = {
-    {"Game", rows_game, 4}, {"Video", rows_video, 3}, {"Audio", rows_audio, 1}, {"Controls", rows_ctl, 11}, {"States", rows_state, 4},
+    {"Game", rows_game, 4}, {"Video", rows_video, 4}, {"Audio", rows_audio, 1}, {"Controls", rows_ctl, 11}, {"States", rows_state, 4},
     {"Extras", NULL, 0},
 };
 #define N_CATS_MAX 6
@@ -232,6 +264,7 @@ static void row_value(int tab, int r, char *val, size_t n, int *kind, int *pct) 
     case 100: snprintf(val, n, "%s", tr(cfg.fit ? "Fit" : "Whole")); break;
     case 101: snprintf(val, n, "%s", tr(cfg.smooth ? "On" : "Off")); break;
     case 102: snprintf(val, n, "%s", tr(cfg.fullscreen ? "On" : "Off")); break;
+    case 103: snprintf(val, n, "%s", tr(cfg.borders ? "On" : "Off")); break;
     case 200: *kind = 2; *pct = cfg.volume; snprintf(val, n, "%d%%", cfg.volume); break;
     case 310: *kind = 0; break;
     case 400: snprintf(val, n, "%d", slot); break;
@@ -268,6 +301,7 @@ static void menu_change(int dir) { /* dir: -1, +1, or 0 for Enter */
     case 100: cfg.fit = !cfg.fit; break;
     case 101: cfg.smooth = !cfg.smooth; break;
     case 102: cfg.fullscreen = !cfg.fullscreen; apply_video(); break;
+    case 103: cfg.borders = !cfg.borders; break;
     case 200: cfg.volume += 10 * d; if (cfg.volume < 0) cfg.volume = 0; if (cfg.volume > 100) cfg.volume = 100; break;
     case 310: if (dir == 0) bind_defaults(); break;
     case 400: slot = (slot - 1 + d + 9) % 9 + 1; break;
