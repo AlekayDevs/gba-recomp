@@ -92,6 +92,7 @@ Estado (2026-11-17): prueba que funciona en una tablet (`android/`): lanzador co
 - [~] **Menú del reproductor con el dedo**: hecho en código (botón MENU arriba y botón atrás abren el menú; toques en categorías y filas, mitad izquierda/derecha para cambiar valores, fuera del panel cierra; compila para arm64) pero **sin probar en el dispositivo**. Falta: capturar un botón/tecla con el dedo (controles), deslizar listas largas, Extras.
 - [ ] **Sonido**: comprobarlo a oído en el dispositivo (colchón de audio, latencia).
 - [ ] **Controles**: afinar tamaño y posición, ajustes (opacidad, tamaño, zurdos), vibración al pulsar, ocultarlos con mando conectado, y adaptarlos al juego (qué botones se usan más).
+- [x] **Diseño pixel art** (2026-11-17): botones táctiles como sprites de píxeles escalados por un factor entero (`runtime/play_touch.h`: placas verde bosque con marco de oro biselado, A esmeralda y B zafiro, gorra de Ezlo en la cruceta) y lanzador con fondo de bosque, título, botones y fuente de píxeles dibujados en código (`android/.../Pixel.java`). Probado en la tablet.
 - [ ] **Lanzador**: icono y nombre definitivos, aviso de actualizaciones (`update.rs`), licencias, varios juegos.
 - [ ] **Distribución**: firma de una versión, `applicationId`, ruta de `gen.c` fuera de `gradle.properties`, comprobar arm64 (endianness y tamaño de punteros), rendimiento y batería en gama baja.
 - [ ] **Otros**: ranuras de estado con miniatura, guardar al pasar a segundo plano, pausa al perder el foco, rotación y pantallas plegables.

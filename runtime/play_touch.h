@@ -21,7 +21,7 @@ static void touch_layout(void) {
     SDL_GetRendererOutputSize(ren, &tw, &th);
     tu = (tw < th ? tw : th) / 8.5f;
     TouchBtn *b = tbtn;
-    b[TB_DPAD].cx = 1.9f * tu; b[TB_DPAD].cy = th - 2.0f * tu; b[TB_DPAD].w = b[TB_DPAD].h = 1.55f * tu; /* half-size of the pad */
+    b[TB_DPAD].cx = 2.05f * tu; b[TB_DPAD].cy = th - 2.0f * tu; b[TB_DPAD].w = b[TB_DPAD].h = 1.55f * tu; /* half-size of the pad */
     b[TB_A].cx = tw - 1.3f * tu; b[TB_A].cy = th - 2.7f * tu; b[TB_A].w = b[TB_A].h = 0.85f * tu; /* radius */
     b[TB_B].cx = tw - 2.9f * tu; b[TB_B].cy = th - 1.4f * tu; b[TB_B].w = b[TB_B].h = 0.85f * tu;
     b[TB_L].cx = 1.4f * tu; b[TB_L].cy = 0.55f * tu; b[TB_L].w = 2.2f * tu; b[TB_L].h = 0.9f * tu;
@@ -34,20 +34,166 @@ static void touch_layout(void) {
     b[TB_REWIND].cx = tw / 2.0f + 1.8f * tu; b[TB_REWIND].cy = 0.4f * tu; b[TB_REWIND].w = 2.0f * tu; b[TB_REWIND].h = 0.6f * tu;
 }
 
-static void touch_init(void) {
-    for (int i = 1; i < TB_N; i++) {
-        const char *s = tbtn[i].label;
-        int w = (int)strlen(s) * 6 + 4, h = 12;
-        static uint8_t buf[200 * 12 * 3];
-        memset(buf, 0, sizeof buf);
-        Canvas c = {buf, w, h};
-        text_draw(&c, 2, 1, s, th_gold, 0);
-        SDL_Texture *t = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STATIC, w, h);
-        if (!t) continue;
-        SDL_UpdateTexture(t, NULL, buf, w * 3);
-        SDL_SetTextureBlendMode(t, SDL_BLENDMODE_ADD);
-        tbtn[i].tex = t; tbtn[i].lw = w; tbtn[i].lh = h;
+/* ---- pixel art: every control is a small sprite (the size of the console's own pixels) drawn once into a texture and scaled up by a
+   whole factor with no smoothing, so it stays crisp. The look follows The Minish Cap: forest green plates with a bevelled gold frame,
+   gem-coloured A and B, and Ezlo's cap in the middle of the pad. All the art is original and drawn here in code. ---- */
+typedef struct { int w, h; uint8_t *px; } TImg;
+static TImg timg_new(int w, int h) { TImg im; im.w = w; im.h = h; im.px = (uint8_t *)calloc((size_t)w * h, 4); return im; }
+static void timg_put(TImg *im, int x, int y, uint32_t rgb) {
+    if (!im->px || x < 0 || y < 0 || x >= im->w || y >= im->h) return;
+    uint8_t *p = im->px + ((size_t)y * im->w + x) * 4;
+    p[0] = (uint8_t)(rgb >> 16); p[1] = (uint8_t)(rgb >> 8); p[2] = (uint8_t)rgb; p[3] = 255;
+}
+#define TC_OUTLINE 0x14240Cu
+#define TC_GOLD_HI 0xFFF0A0u
+#define TC_GOLD    0xF0C840u
+#define TC_GOLD_LO 0xB07818u
+#define TC_GOLD_DK 0x684010u
+#define TC_STONE   0x1E4A30u /* forest green body */
+#define TC_STONE_HI 0x2F6E46u
+#define TC_PRESS   0x58B868u
+#define TC_TEXT    0xFFF8D8u
+#define TC_SHADOW  0x0C2014u
+static const uint8_t tfont[][7] = {
+    /* A */ {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11}, /* B */ {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E}, /* L */ {0x10,0x10,0x10,0x10,0x10,0x10,0x1F},
+    /* R */ {0x1E,0x11,0x11,0x1E,0x14,0x12,0x11}, /* S */ {0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E}, /* T */ {0x1F,0x04,0x04,0x04,0x04,0x04,0x04},
+    /* E */ {0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F}, /* C */ {0x0E,0x11,0x10,0x10,0x10,0x11,0x0E}, /* M */ {0x11,0x1B,0x15,0x15,0x11,0x11,0x11},
+    /* N */ {0x11,0x11,0x19,0x15,0x13,0x11,0x11}, /* U */ {0x11,0x11,0x11,0x11,0x11,0x11,0x0E}, /* O */ {0x0E,0x11,0x11,0x11,0x11,0x11,0x0E},
+    /* D */ {0x1E,0x11,0x11,0x11,0x11,0x11,0x1E}, /* V */ {0x11,0x11,0x11,0x11,0x11,0x0A,0x04}, /* W */ {0x11,0x11,0x11,0x15,0x15,0x1B,0x11},
+    /* I */ {0x0E,0x04,0x04,0x04,0x04,0x04,0x0E},
+};
+static const uint8_t *tglyph(char c) { static const char order[] = "ABLRSTECMNUODVWI"; const char *p = c ? strchr(order, c) : NULL; return p ? tfont[p - order] : NULL; }
+static int ttext_w(const char *s) { return (int)strlen(s) * 6 - 1; }
+static void ttext(TImg *im, int x, int y, const char *s, uint32_t col, uint32_t shadow) {
+    for (int pass = 0; pass < 2; pass++) {
+        int cx = x + (pass == 0), cy = y + (pass == 0);
+        for (const char *c = s; *c; c++, cx += 6) {
+            const uint8_t *g = tglyph(*c);
+            if (!g) continue;
+            for (int gy = 0; gy < 7; gy++) for (int gx = 0; gx < 5; gx++) if (g[gy] & (0x10 >> gx)) timg_put(im, cx + gx, cy + gy, pass == 0 ? shadow : col);
+        }
     }
+}
+typedef struct { int w, h; } TBox;
+typedef int (*TInside)(const void *shape, int x, int y, int e);
+/* the gold frame: dark outline, a bevel that catches the light at the top left, a thin dark line and then the body */
+static void tplate(TImg *im, TInside inside, const void *shape, uint32_t body, uint32_t body_hi, int pressed) {
+    for (int y = 0; y < im->h; y++) for (int x = 0; x < im->w; x++) {
+        int lit = (x + y) < (im->w + im->h) / 2;
+        uint32_t hi = pressed ? TC_GOLD : TC_GOLD_HI, mid = pressed ? TC_GOLD_LO : TC_GOLD, lo = pressed ? TC_GOLD_DK : TC_GOLD_LO;
+        if (!inside(shape, x, y, 0)) continue;
+        if (!inside(shape, x, y, 1)) timg_put(im, x, y, TC_OUTLINE);
+        else if (!inside(shape, x, y, 2)) timg_put(im, x, y, lit ? hi : mid);
+        else if (!inside(shape, x, y, 3)) timg_put(im, x, y, lit ? mid : lo);
+        else if (!inside(shape, x, y, 4)) timg_put(im, x, y, TC_GOLD_DK);
+        else timg_put(im, x, y, (x + y) * 100 / (im->w + im->h) < 38 && !pressed ? body_hi : body);
+    }
+}
+static int tin_round(const void *shape, int x, int y, int e) {
+    const TBox *b = (const TBox *)shape;
+    float r = b->h / 2.0f - e, dx = (float)x - (b->w - 1) / 2.0f, dy = (float)y - (b->h - 1) / 2.0f, half = (b->w - b->h) / 2.0f;
+    if (r < 0) return 0;
+    dx = dx > half ? dx - half : dx < -half ? dx + half : 0;
+    return dx * dx + dy * dy <= (r + 0.5f) * (r + 0.5f);
+}
+static int tin_plate(const void *shape, int x, int y, int e) {
+    const TBox *b = (const TBox *)shape;
+    int c = 2 - e > 0 ? 2 - e : 0;
+    if (x < e || y < e || x >= b->w - e || y >= b->h - e) return 0;
+    if (x < e + c && y < e + c && (x - e) + (y - e) < c) return 0;
+    if (x >= b->w - e - c && y < e + c && (b->w - 1 - e - x) + (y - e) < c) return 0;
+    if (x < e + c && y >= b->h - e - c && (x - e) + (b->h - 1 - e - y) < c) return 0;
+    if (x >= b->w - e - c && y >= b->h - e - c && (b->w - 1 - e - x) + (b->h - 1 - e - y) < c) return 0;
+    return 1;
+}
+/* A and B: a gem set in the gold ring (emerald and sapphire, like the rupees), with a shine at the top left */
+static TImg spr_button(int isb, int pressed) {
+    TBox b = {27, 27};
+    TImg im = timg_new(b.w, b.h);
+    uint32_t col = isb ? 0x2858C8u : 0x2E9E48u, hi = isb ? 0x78A0F0u : 0x78E090u;
+    if (pressed) col = (col >> 1) & 0x7F7F7Fu;
+    tplate(&im, tin_round, &b, col, hi, pressed);
+    if (!pressed) { timg_put(&im, 7, 7, 0xFFFFFFu); timg_put(&im, 8, 7, 0xFFFFFFu); timg_put(&im, 7, 8, 0xFFFFFFu); }
+    ttext(&im, (b.w - 5) / 2 + pressed, (b.h - 7) / 2 + pressed, isb ? "B" : "A", TC_TEXT, TC_SHADOW);
+    return im;
+}
+static TImg spr_pill(int w, int h, const char *label, int pressed, int round) {
+    TBox b = {w, h};
+    TImg im = timg_new(w, h);
+    tplate(&im, round ? tin_round : tin_plate, &b, pressed ? TC_PRESS : TC_STONE, TC_STONE_HI, pressed);
+    ttext(&im, (w - ttext_w(label)) / 2 + pressed, (h - 7) / 2 + pressed, label, TC_GOLD_HI, TC_SHADOW);
+    return im;
+}
+static int tcross(int dx, int dy, int a, int l, int e) {
+    int ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy;
+    a -= e; l -= e;
+    return (ax <= a && ay <= l) || (ay <= a && ax <= l);
+}
+/* Ezlo's cap: a green pointed hat bent to one side with a gold band and two eyes, 15 by 13 */
+static void that(TImg *im, int ox, int oy) {
+    static const char *m[13] = {
+        "......gg.......", ".....gGgg......", "....gGggg......", "...gGgggg......", "..gGggggg......", ".gGggggggg.....", ".gGgggggggg....",
+        "gGggggggggg....", "bbbbbbbbbbbb...", "bBBBBBBBBBBb...", ".bbbbbbbbbb....", "..ww..ww.......", "..wk..wk.......",
+    };
+    for (int y = 0; y < 13; y++) for (int x = 0; x < 15; x++) {
+        char c = m[y][x];
+        uint32_t col = c == 'g' ? 0x2E9E48u : c == 'G' ? 0x80E080u : c == 'b' ? TC_GOLD_LO : c == 'B' ? TC_GOLD_HI : c == 'w' ? 0xFFFFE0u : c == 'k' ? 0x142008u : 0;
+        if (c != '.') timg_put(im, ox + x, oy + y, col);
+    }
+}
+/* the pad: a green cross in a gold frame, an arrow on each arm and the cap in the middle; dir 0 is the plate, 1..4 the lit arm (up down left right) */
+static TImg spr_dpad(int dir) {
+    int n = 65, c = 32;
+    TImg im = timg_new(n, n);
+    for (int y = 0; y < n; y++) for (int x = 0; x < n; x++) {
+        int dx = x - c, dy = y - c, lit = dx + dy < 0, arm = 0, adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+        if (dir == 1) arm = dy < 0 && tcross(dx, dy, 9, 31, 4) && adx <= 5;
+        else if (dir == 2) arm = dy > 0 && tcross(dx, dy, 9, 31, 4) && adx <= 5;
+        else if (dir == 3) arm = dx < 0 && tcross(dx, dy, 9, 31, 4) && ady <= 5;
+        else if (dir == 4) arm = dx > 0 && tcross(dx, dy, 9, 31, 4) && ady <= 5;
+        if (dir) { if (arm) { timg_put(&im, x, y, TC_PRESS); im.px[((size_t)y * n + x) * 4 + 3] = 170; } continue; }
+        if (!tcross(dx, dy, 10, 32, 0)) continue;
+        if (!tcross(dx, dy, 10, 32, 1)) timg_put(&im, x, y, TC_OUTLINE);
+        else if (!tcross(dx, dy, 10, 32, 3)) timg_put(&im, x, y, lit ? TC_GOLD_HI : TC_GOLD);
+        else if (!tcross(dx, dy, 10, 32, 4)) timg_put(&im, x, y, lit ? TC_GOLD : TC_GOLD_LO);
+        else if (!tcross(dx, dy, 10, 32, 5)) timg_put(&im, x, y, TC_GOLD_DK);
+        else timg_put(&im, x, y, lit && dx + dy < -10 ? TC_STONE_HI : TC_STONE);
+    }
+    if (!dir) {
+        for (int i = 0; i < 4; i++) {
+            int ax = i == 2 ? -24 : i == 3 ? 24 : 0, ay = i == 0 ? -24 : i == 1 ? 24 : 0;
+            for (int k = 0; k < 4; k++) for (int w = -k; w <= k; w++)
+                timg_put(&im, c + (i < 2 ? ax + w : ax + (i == 2 ? 3 - k : k - 3)), c + (i < 2 ? ay + (i == 0 ? 3 - k : k - 3) : ay + w), TC_GOLD);
+        }
+        that(&im, c - 7, c - 7);
+    }
+    return im;
+}
+static SDL_Texture *timg_tex(TImg *im) {
+    SDL_Texture *t = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, im->w, im->h);
+    if (t) { SDL_UpdateTexture(t, NULL, im->px, im->w * 4); SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND); SDL_SetTextureScaleMode(t, SDL_ScaleModeNearest); }
+    free(im->px); im->px = NULL;
+    return t;
+}
+static SDL_Texture *tspr[TB_N][2]; /* [control][up/down]; the pad's arms are in tarm */
+static SDL_Texture *tarm[4];
+static int tspr_w[TB_N];
+static void touch_art(void) {
+    static const char *lab[TB_N] = {"", "A", "B", "L", "R", "START", "SELECT", "SAVE", "LOAD", "REWIND", "MENU"};
+    for (int i = 0; i < TB_N; i++) for (int d = 0; d < 2; d++) {
+        TImg im;
+        if (i == TB_DPAD) { if (d) continue; im = spr_dpad(0); }
+        else if (i == TB_A || i == TB_B) im = spr_button(i == TB_B, d);
+        else if (i == TB_L || i == TB_R) im = spr_pill(41, 17, lab[i], d, 1);
+        else im = spr_pill(i == TB_START || i == TB_SELECT ? 45 : 39, 13, lab[i], d, 0);
+        tspr_w[i] = im.w;
+        tspr[i][d] = timg_tex(&im);
+    }
+    for (int k = 0; k < 4; k++) { TImg im = spr_dpad(k + 1); tarm[k] = timg_tex(&im); }
+}
+
+static void touch_init(void) {
+    touch_art();
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
     touch_layout();
 }
@@ -114,92 +260,36 @@ static void touch_event(const SDL_Event *e) {
     tfinger[slot_i].on = 1; tfinger[slot_i].id = e->tfinger.fingerId; tfinger[slot_i].x = e->tfinger.x; tfinger[slot_i].y = e->tfinger.y;
 }
 
-/* ---- drawing: round buttons with a gold ring, a cross with a gold edge and pill-shaped shoulder buttons, in the colours of the theme ---- */
-static void tcol(uint32_t c, int a) { SDL_SetRenderDrawColor(ren, c >> 16, (c >> 8) & 255, c & 255, a); }
 
-/* how far the row j of a rounded box (height h, corner radius r) is cut in from the left edge */
-static int tinset(int j, int h, int r) {
-    float dy = j < r ? r - j - 0.5f : j >= h - r ? j - (h - r) + 0.5f : 0;
-    if (dy >= r) return r;
-    return r - (int)sqrtf((float)r * r - dy * dy);
-}
-
-/* a rounded box (a circle when w == h, a pill when r = h/2); t > 0 draws only a ring of that thickness */
-static void tround(int x, int y, int w, int h, int r, int t) {
-    for (int j = 0; j < h; j++) {
-        int o = tinset(j, h, r);
-        if (t <= 0 || j < t || j >= h - t) {
-            SDL_Rect q = {x + o, y + j, w - 2 * o, 1};
-            SDL_RenderFillRect(ren, &q);
-        } else {
-            int in = t + tinset(j - t, h - 2 * t, r > t ? r - t : 0);
-            if (in < o + t) in = o + t;
-            SDL_Rect a = {x + o, y + j, in - o, 1}, b = {x + w - in, y + j, in - o, 1};
-            SDL_RenderFillRect(ren, &a); SDL_RenderFillRect(ren, &b);
-        }
-    }
-}
-
-static void tlabel(const TouchBtn *b, int cx, int cy, int hh, int down) {
-    if (!b->tex) return;
-    int sc = (int)(hh * 0.42f / b->lh); if (sc < 1) sc = 1;
-    int lw = b->lw * sc, lh = b->lh * sc;
-    SDL_Rect d = {cx - lw / 2, cy - lh / 2, lw, lh};
-    SDL_SetTextureAlphaMod(b->tex, down ? 255 : 190);
-    SDL_RenderCopy(ren, b->tex, NULL, &d);
+/* ---- drawing: the sprites, scaled by a whole factor ---- */
+static void tsprite(SDL_Texture *t, int cx, int cy, int w0, int h0, int target, int alpha) {
+    if (!t) return;
+    int s = (int)(target / (float)w0 + 0.5f); if (s < 1) s = 1;
+    SDL_Rect d = {cx - w0 * s / 2, cy - h0 * s / 2, w0 * s, h0 * s};
+    SDL_SetTextureAlphaMod(t, (uint8_t)alpha);
+    SDL_RenderCopy(ren, t, NULL, &d);
 }
 
 static void touch_draw(u32 held) {
     touch_layout();
     SDL_RenderSetLogicalSize(ren, 0, 0);
-    SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
-    int ring = (int)(tu * 0.07f); if (ring < 2) ring = 2;
     for (int i = 0; i < TB_N; i++) {
         TouchBtn *b = &tbtn[i];
         int down = 0;
         if (i == TB_DPAD) down = (held & 0xF0) != 0;
         else if (i == TB_REWIND) down = touch_rewind;
         else if (b->mask) down = (held & b->mask) != 0;
-        int small = i >= TB_SAVE;                 /* the three quick buttons stay discreet */
-        int fa = down ? 190 : (small ? 60 : 95);   /* body */
-        int ra = down ? 255 : (small ? 120 : 190); /* ring */
-        uint32_t body = down ? ui_mix(th_panel, th_gold, 1, 2) : th_bg;
-        if (b->shape == 2) { /* the cross */
-            float s = b->w, a = 0.62f * s;
-            int cx = (int)b->cx, cy = (int)b->cy, S = (int)s, A = (int)(a / 2);
-            struct { int x, y, w, h; u32 bit; } arm[5] = {
-                {cx - A, cy - S, 2 * A, S - A, 64}, {cx - A, cy + A, 2 * A, S - A, 128},
-                {cx - S, cy - A, S - A, 2 * A, 32}, {cx + A, cy - A, S - A, 2 * A, 16}, {cx - A, cy - A, 2 * A, 2 * A, 0}};
-            for (int k = 0; k < 5; k++) {
-                int on = arm[k].bit && (held & arm[k].bit);
-                if (on) tcol(th_gold, 210); else tcol(th_bg, fa);
-                SDL_Rect r = {arm[k].x, arm[k].y, arm[k].w, arm[k].h};
-                SDL_RenderFillRect(ren, &r);
-            }
-            SDL_Point pts[13] = {{cx - A, cy - S}, {cx + A, cy - S}, {cx + A, cy - A}, {cx + S, cy - A}, {cx + S, cy + A}, {cx + A, cy + A},
-                                 {cx + A, cy + S}, {cx - A, cy + S}, {cx - A, cy + A}, {cx - S, cy + A}, {cx - S, cy - A}, {cx - A, cy - A}, {cx - A, cy - S}};
-            tcol(th_gold, ra);
-            for (int k = 0; k < ring; k++) {
-                SDL_Point q[13];
-                for (int m = 0; m < 13; m++) { q[m] = pts[m]; q[m].x += (pts[m].x < cx ? k : -k); q[m].y += (pts[m].y < cy ? k : -k); }
-                SDL_RenderDrawLines(ren, q, 13);
-            }
+        int small = i >= TB_SAVE, a = down ? 255 : (small ? 130 : 205);
+        if (i == TB_DPAD) {
+            int target = (int)(2 * b->w);
+            tsprite(tspr[i][0], (int)b->cx, (int)b->cy, 65, 65, target, a);
+            static const u32 bit[4] = {64, 128, 32, 16};
+            for (int k = 0; k < 4; k++) if (held & bit[k]) tsprite(tarm[k], (int)b->cx, (int)b->cy, 65, 65, target, 255);
             continue;
         }
-        int x, y, w, h, r;
-        if (b->shape == 0) { w = h = (int)(2 * b->w); r = w / 2; }
-        else { w = (int)b->w; h = (int)b->h; r = h / 2; }
-        x = (int)(b->cx - w / 2.0f); y = (int)(b->cy - h / 2.0f);
-        tcol(body, fa);
-        tround(x, y, w, h, r, 0);
-        tcol(th_gold, ra);
-        tround(x, y, w, h, r, ring);
-        if (b->shape == 0) { /* a second thin ring inside, like the buttons of the console */
-            int g = ring * 3;
-            tcol(th_gold, ra / 3);
-            tround(x + g, y + g, w - 2 * g, h - 2 * g, r - g, 1);
-        }
-        tlabel(b, x + w / 2, y + h / 2, b->shape == 0 ? (int)(h * 1.1f) : h, down);
+        int w0 = tspr_w[i], h0 = (i == TB_A || i == TB_B) ? 27 : (i == TB_L || i == TB_R) ? 17 : 13;
+        int target = b->shape == 0 ? (int)(2 * b->w) : (int)b->w;
+        tsprite(tspr[i][down], (int)b->cx, (int)b->cy, w0, h0, target, a);
     }
     SDL_RenderSetLogicalSize(ren, 240, 160);
 }
