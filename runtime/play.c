@@ -28,6 +28,7 @@ void sys_report(void) {} /* only the headless runner reports */
 #include "play_menu.h"
 #ifdef __ANDROID__
 #include "play_touch.h"
+#include "play_edit.h"
 
 #ifdef __ANDROID__
 /* Android: when the app goes to the background the OS may kill it at any time, so a state is saved first (<saves>/<rom>.auto) and a
@@ -119,7 +120,7 @@ static void on_frame(u32 frame) {
         if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) focus_lost = 0;
 #endif
 #ifdef __ANDROID__
-        if ((e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_AC_BACK) || touch_menu_req) { touch_menu_req = 0; if (menu_run()) exit(0); memset(tfinger, 0, sizeof tfinger); }
+        if ((e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_AC_BACK) || touch_menu_req) { touch_menu_req = 0; if (menu_run()) exit(0); if (touch_edit_req) { touch_edit_req = 0; touch_edit_run(); } memset(tfinger, 0, sizeof tfinger); }
 #endif
         if (e.type == SDL_KEYDOWN && (
 #ifndef __ANDROID__

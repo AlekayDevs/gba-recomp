@@ -15,6 +15,7 @@ static int touch_menu_req; /* the MENU button was tapped: play.c opens the menu 
 static struct { SDL_FingerID id; float x, y; int on; } tfinger[10];
 static Uint32 touch_last_ms; /* when the screen was last touched (the buttons hide while a controller is in use) */
 void gba_haptic(void); /* android_main.c: a short vibration */
+static int touch_editing; /* the editor of the buttons is open: nothing hides */
 static int touch_rewind, touch_seen; /* touch_seen: the screen has been touched at least once (the buttons fade when a controller is used) */
 static int tw, th;
 static float tu;
@@ -45,6 +46,19 @@ static void touch_layout(void) {
             x += q->w + gap;
         }
     }
+    for (int i = 0; i < TB_N; i++) { /* what the player edited: offset and size of each button */
+        float sc = cfg.tb_sc[i] / 100.0f;
+        b[i].w *= sc; b[i].h *= sc;
+        b[i].cx += cfg.tb_dx[i] * tw; b[i].cy += cfg.tb_dy[i] * th;
+        if (b[i].cx < 0) b[i].cx = 0;
+        if (b[i].cx > tw) b[i].cx = (float)tw;
+        if (b[i].cy < 0) b[i].cy = 0;
+        if (b[i].cy > th) b[i].cy = (float)th;
+    }
+}
+
+static void touch_layout_reset(void) {
+    for (int i = 0; i < 11; i++) { cfg.tb_dx[i] = cfg.tb_dy[i] = 0; cfg.tb_sc[i] = cfg.tb_op[i] = 100; }
 }
 
 /* ---- pixel art: every control is a small sprite (the size of the console's own pixels) drawn once into a texture and scaled up by a
@@ -300,7 +314,7 @@ static void tsprite(SDL_Texture *t, int cx, int cy, int w0, int h0, int target, 
 
 static void touch_draw(u32 held) {
     touch_layout();
-    if (cfg.t_hide && pad && SDL_GetTicks() - touch_last_ms > 4000) return; /* a controller is in use: no buttons on the screen */
+    if (!touch_editing && cfg.t_hide && pad && SDL_GetTicks() - touch_last_ms > 4000) return; /* a controller is in use: no buttons on the screen */
     SDL_RenderSetLogicalSize(ren, 0, 0);
     for (int i = 0; i < TB_N; i++) {
         TouchBtn *b = &tbtn[i];
@@ -309,7 +323,7 @@ static void touch_draw(u32 held) {
         if (i == TB_DPAD) down = (held & 0xF0) != 0;
         else if (i == TB_REWIND) down = touch_rewind;
         else if (b->mask) down = (held & b->mask) != 0;
-        int small = i >= TB_SAVE, a = (down ? 255 : (small ? 105 : 205)) * cfg.t_opacity / 100;
+        int small = i >= TB_SAVE, a = (down ? 255 : (small ? 105 : 205)) * cfg.t_opacity / 100 * cfg.tb_op[i] / 100;
         if (i == TB_DPAD) {
             int target = (int)(2 * b->w);
             tsprite(tspr[i][0], (int)b->cx, (int)b->cy, 65, 65, target, a);

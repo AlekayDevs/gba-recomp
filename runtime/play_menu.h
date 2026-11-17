@@ -10,7 +10,10 @@
  * Settings live in config.ini (in the saves folder), apply at once and are saved when the menu closes. */
 #include "play_ui.h"
 
-typedef struct { int lang; int fit; int smooth; int fullscreen; int volume; int rewind; int borders; int t_opacity, t_size, t_quick, t_haptic, t_left, t_hide; } Settings; /* lang: index into langs[] */
+typedef struct { int lang; int fit; int smooth; int fullscreen; int volume; int rewind; int borders; int t_opacity, t_size, t_quick, t_haptic, t_left, t_hide;
+    float tb_dx[11], tb_dy[11]; int tb_sc[11], tb_op[11]; /* per touch button: offset (fraction of the window), size % and opacity % */ } Settings;
+static int touch_edit_req; /* the menu asks play.c to open the editor of the touch buttons */
+static void touch_layout_reset(void); /* lang: index into langs[] */
 static Settings cfg;
 /* The controls: for each button of the GBA (bit i of KEYINPUT: A B Select Start Right Left Up Down R L) a keyboard
  * scancode and a controller button, one of each. Kept in config.ini as key_<name> (scancode name) and pad_<name> (number). */
@@ -36,7 +39,7 @@ static int emblem_ok;
 static const struct { const char *code, *name; } langs[] = { {"", "English"}, {"es", "Espa\xC3\xB1ol"} };
 #define N_LANGS 2
 
-static void cfg_defaults(void) { cfg.lang = 0; cfg.fit = 0; cfg.smooth = 0; cfg.fullscreen = 0; cfg.volume = 100; cfg.rewind = 1; cfg.borders = 1; cfg.t_opacity = 100; cfg.t_size = 100; cfg.t_quick = 1; cfg.t_haptic = 1; cfg.t_left = 0; cfg.t_hide = 1; }
+static void cfg_defaults(void) { cfg.lang = 0; cfg.fit = 0; cfg.smooth = 0; cfg.fullscreen = 0; cfg.volume = 100; cfg.rewind = 1; cfg.borders = 1; cfg.t_opacity = 100; cfg.t_size = 100; cfg.t_quick = 1; cfg.t_haptic = 1; cfg.t_left = 0; cfg.t_hide = 1; for (int i = 0; i < 11; i++) { cfg.tb_dx[i] = cfg.tb_dy[i] = 0; cfg.tb_sc[i] = cfg.tb_op[i] = 100; } }
 
 static int lang_index(const char *code) {
     for (int i = 0; i < N_LANGS; i++) if (!strcmp(langs[i].code, code)) return i;
@@ -66,6 +69,13 @@ static void cfg_load(void) {
         else if (!strcmp(line, "touch_haptic")) cfg.t_haptic = atoi(v) != 0;
         else if (!strcmp(line, "touch_left")) cfg.t_left = atoi(v) != 0;
         else if (!strcmp(line, "touch_hide")) cfg.t_hide = atoi(v) != 0;
+        else if (!strncmp(line, "tb_", 3) && line[3] >= '0' && line[3] <= '9') {
+            int i = atoi(line + 3), sc, op; float dx, dy;
+            if (i >= 0 && i < 11 && sscanf(v, "%f,%f,%d,%d", &dx, &dy, &sc, &op) == 4) {
+                cfg.tb_dx[i] = dx; cfg.tb_dy[i] = dy;
+                cfg.tb_sc[i] = sc < 50 ? 50 : sc > 200 ? 200 : sc; cfg.tb_op[i] = op < 20 ? 20 : op > 100 ? 100 : op;
+            }
+        }
         else if (!strncmp(line, "key_", 4) || !strncmp(line, "pad_", 4)) {
             for (int i = 0; i < 10; i++) if (!strcmp(line + 4, gba_btn[i])) {
                 if (line[0] == 'k') { SDL_Scancode sc = SDL_GetScancodeFromName(v); if (sc != SDL_SCANCODE_UNKNOWN) kb[i] = sc; }
@@ -85,6 +95,7 @@ static void cfg_save(void) {
     fprintf(f, "# Options of the player. Edit by hand or from the menu (F1).\nlanguage=%s\nscaling=%s\nsmooth=%d\nfullscreen=%d\nvolume=%d\nrewind=%d\nborders=%d\n",
             langs[cfg.lang].code, cfg.fit ? "fit" : "integer", cfg.smooth, cfg.fullscreen, cfg.volume, cfg.rewind, cfg.borders);
     fprintf(f, "touch_opacity=%d\ntouch_size=%d\ntouch_quick=%d\ntouch_haptic=%d\ntouch_left=%d\ntouch_hide=%d\n", cfg.t_opacity, cfg.t_size, cfg.t_quick, cfg.t_haptic, cfg.t_left, cfg.t_hide);
+    for (int i = 0; i < 11; i++) fprintf(f, "tb_%d=%.4f,%.4f,%d,%d\n", i, cfg.tb_dx[i], cfg.tb_dy[i], cfg.tb_sc[i], cfg.tb_op[i]);
     for (int i = 0; i < rt_opt_count(); i++) fprintf(f, "opt_%s=%d\n", rt_opt_get(i)->id, rt_opt_val[i]);
     for (int i = 0; i < 10; i++) fprintf(f, "key_%s=%s\npad_%s=%d\n", gba_btn[i], SDL_GetScancodeName((SDL_Scancode)kb[i]), gba_btn[i], pb[i]);
     fclose(f);
@@ -184,13 +195,15 @@ static const char *tr(const char *s) {
         {"Volume of the game's sound.", "Volumen del sonido del juego."},
         {"Opacity", "Opacidad"}, {"Size", "Tama\xC3\xB1o"}, {"Quick buttons", "Botones r\xC3\xA1pidos"},
         {"Vibration", "Vibraci\xC3\xB3n"}, {"Left-handed", "Modo zurdo"}, {"Hide with controller", "Ocultar con mando"},
+        {"Edit buttons", "Editar botones"}, {"Reset", "Restablecer"}, {"Done", "Hecho"}, {"Drag a button", "Arrastra un bot\xC3\xB3n para moverlo."},
+        {"Drag each button where you want it and set its size and opacity.", "Arrastra cada bot\xC3\xB3n adonde quieras y ajusta su tama\xC3\xB1o y opacidad."},
         {"A short tick when you press a button on the screen.", "Una vibraci\xC3\xB3n corta al pulsar un bot\xC3\xB3n de la pantalla."},
         {"Puts the pad on the right and A and B on the left.", "Pone la cruceta a la derecha y A y B a la izquierda."},
         {"Hides the buttons on the screen while a controller is connected (touching the screen brings them back).", "Oculta los botones de la pantalla mientras hay un mando conectado (al tocar la pantalla vuelven)."},
         {"How solid the buttons on the screen look while you are not touching them.", "Lo opacos que se ven los botones de la pantalla cuando no los tocas."},
         {"Size of the buttons on the screen.", "Tama\xC3\xB1o de los botones de la pantalla."},
         {"Shows SAVE, LOAD and REWIND at the top of the screen. MENU always stays.", "Muestra SAVE, LOAD y REWIND arriba. MENU siempre se queda."},
-        {"Puts the buttons back to their size and opacity.", "Devuelve los botones a su tama\xC3\xB1o y opacidad."},
+        {"Puts the buttons back to their place, size and opacity.", "Devuelve los botones a su sitio, tama\xC3\xB1o y opacidad."},
         {"Tap to choose   Tap outside to close", "Toca para elegir   Toca fuera para cerrar"},
         {"Controls", "Controles"}, {"Extras", "Extras"}, {"States", "Estados"}, {"Slot", "Ranura"}, {"Save state", "Guardar estado"}, {"Load state", "Cargar estado"}, {"Rewind", "Rebobinar"},
         {"Hold R (L3 on a controller) to go back in time, up to a minute. Keeping the history costs a little processor time.", "Mant\xC3\xA9n R (L3 en el mando) para volver atr\xC3\xA1s en el tiempo, hasta un minuto. Guardar el historial gasta un poco de procesador."},
@@ -247,7 +260,8 @@ static const Row rows_touch[] = {
     {"Vibration", "A short tick when you press a button on the screen."},
     {"Left-handed", "Puts the pad on the right and A and B on the left."},
     {"Hide with controller", "Hides the buttons on the screen while a controller is connected (touching the screen brings them back)."},
-    {"Restore controls", "Puts the buttons back to their size and opacity."},
+    {"Edit buttons", "Drag each button where you want it and set its size and opacity."},
+    {"Restore controls", "Puts the buttons back to their place, size and opacity."},
 };
 static const Row rows_video_touch[] = {
     {"Scaling", "Whole keeps every pixel the same size and the picture sharp; Fit fills the window, with uneven pixels."},
@@ -263,7 +277,7 @@ static const Row rows_state[] = {
 #define TAB_OPTS 5 /* the options of the game: its rows come from game_opts[] */
 static const Category cats[] = {
 #ifdef __ANDROID__
-    {"Game", rows_game, 4}, {"Video", rows_video_touch, 3}, {"Audio", rows_audio, 1}, {"Controls", rows_touch, 7}, {"States", rows_state, 4},
+    {"Game", rows_game, 4}, {"Video", rows_video_touch, 3}, {"Audio", rows_audio, 1}, {"Controls", rows_touch, 8}, {"States", rows_state, 4},
 #else
     {"Game", rows_game, 4}, {"Video", rows_video, 4}, {"Audio", rows_audio, 1}, {"Controls", rows_ctl, 11}, {"States", rows_state, 4},
 #endif
@@ -310,7 +324,7 @@ static void row_value0(int tab, int r, char *val, size_t n, int *kind, int *pct)
     case 301: snprintf(val, n, "%d%%", cfg.t_size); break;
     case 302: snprintf(val, n, "%s", tr(cfg.t_quick ? "On" : "Off")); break;
     case 303: case 304: case 305: snprintf(val, n, "%s", tr((VROW(tab, r) == 3 ? cfg.t_haptic : VROW(tab, r) == 4 ? cfg.t_left : cfg.t_hide) ? "On" : "Off")); break;
-    case 306: *kind = 0; break;
+    case 306: case 307: *kind = 0; break;
 #endif
     case 0:  snprintf(val, n, "%s", langs[cfg.lang].name); break;
     case 1: case 2: case 3: *kind = 0; break;
@@ -359,7 +373,8 @@ static void menu_change(int dir) { /* dir: -1, +1, or 0 for Enter */
     case 303: cfg.t_haptic = !cfg.t_haptic; break;
     case 304: cfg.t_left = !cfg.t_left; break;
     case 305: cfg.t_hide = !cfg.t_hide; break;
-    case 306: if (dir == 0) { cfg.t_opacity = 100; cfg.t_size = 100; cfg.t_quick = 1; cfg.t_haptic = 1; cfg.t_left = 0; cfg.t_hide = 1; } break;
+    case 306: if (dir == 0) { touch_edit_req = 1; menu_close_req = 1; } break;
+    case 307: if (dir == 0) { cfg.t_opacity = 100; cfg.t_size = 100; cfg.t_quick = 1; cfg.t_haptic = 1; cfg.t_left = 0; cfg.t_hide = 1; touch_layout_reset(); } break;
 #endif
     case 0: cfg.lang = (cfg.lang + d + N_LANGS) % N_LANGS; cfg_save(); apply_language(); break;
     case 1: if (dir == 0) { cfg_save(); apply_language(); } break;
