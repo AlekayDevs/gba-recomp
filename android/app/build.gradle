@@ -1,12 +1,15 @@
-// App Android de gba-port: la prueba con el juego precompilado en el APK (ver android/README.md).
+// App Android de gba-port: el telefono genera el C del juego desde la ROM del usuario (biblioteca del generador, Rust) y lo compila
+// en memoria con libtcc al arrancar; el runtime va compilado en libmain.so (ver android/README.md).
 plugins {
     id 'com.android.application'
 }
 
 def repo = rootProject.file('..').canonicalPath
 def sdl = rootProject.file(providers.gradleProperty('gbaPort.sdlDir').get()).canonicalPath
-def genC = rootProject.file(providers.gradleProperty('gbaPort.genC').get()).canonicalPath
-def gameDir = rootProject.file(providers.gradleProperty('gbaPort.gameDir').get()).canonicalPath
+def tinycc = rootProject.file(providers.gradleProperty('gbaPort.tinycc').get()).canonicalPath
+def profile = rootProject.file(providers.gradleProperty('gbaPort.profile').get())
+def gameDir = new File(profile.parentFile, profile.name - '.toml').canonicalPath
+def gameAssets = layout.buildDirectory.dir('generated/gameAssets')
 
 android {
     namespace 'io.github.alekaydevs.gbaport'
@@ -20,11 +23,46 @@ android {
         versionName '0.1'
         ndk { abiFilters 'arm64-v8a' }
         externalNativeBuild {
-            cmake { arguments "-DGBA_RECOMP_DIR=${repo}", "-DSDL2_DIR=${sdl}", "-DGBA_GEN_C=${genC}", "-DGBA_GAME_DIR=${gameDir}" }
+            cmake {
+                arguments "-DGBA_RECOMP_DIR=${repo}", "-DSDL2_DIR=${sdl}", "-DTINYCC_DIR=${tinycc}", "-DGBA_GAME_DIR=${gameDir}",
+                        "-DGBA_GEN_LIB=${repo}/target/aarch64-linux-android/release/libgba_recomp.a"
+            }
         }
     }
     externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt'; version '3.22.1' } }
     lint { checkReleaseBuilds false }
     packaging { jniLibs { useLegacyPackaging true } }
-    sourceSets { main { java.srcDirs += "${sdl}/android-project/app/src/main/java" } }
+    sourceSets {
+        main {
+            java.srcDirs += "${sdl}/android-project/app/src/main/java"
+            assets.srcDirs += gameAssets.get().asFile
+        }
+    }
 }
+
+// Lo que el telefono necesita para generar y compilar: el perfil y sus raices, y las cabeceras para TinyCC. Nada de la ROM.
+tasks.register('gameAssets', Sync) {
+    into gameAssets
+    from("${tinycc}/include") { into 'tcc_include' }
+    from("${rootProject.projectDir}/tcc_include") { into 'tcc_include' }
+    from("${repo}/runtime") { include 'gba_rt.h'; into 'tcc_include' } // la interfaz del runtime: codigo propio
+    from(profile) { into 'game'; rename { 'profile.toml' } }
+    from(new File(profile.parentFile, 'dynamic_roots.txt')) { into 'game'; rename { 'roots.txt' } }
+    from("${tinycc}/COPYING") { into 'licenses'; rename { 'libtcc-LGPL-2.1.txt' } }
+    from("${sdl}/LICENSE.txt") { into 'licenses'; rename { 'SDL2-zlib.txt' } }
+    doLast {
+        // Android no lista carpetas de assets con rutas de ficheros: un indice para copiarlos.
+        def root = gameAssets.get().asFile
+        def lines = []
+        root.eachFileRecurse { f -> if (f.isFile() && f.name != 'index.txt') lines << root.toPath().relativize(f.toPath()).toString().replace('\\', '/') }
+        new File(root, 'index.txt').text = lines.sort().join('\n') + '\n'
+    }
+}
+
+// El generador (Rust) como biblioteca estatica para arm64: no necesita el enlazador del NDK.
+tasks.register('cargoGenerator', Exec) {
+    workingDir repo
+    commandLine 'cargo', 'rustc', '--release', '--lib', '--target', 'aarch64-linux-android', '--crate-type', 'staticlib'
+}
+
+tasks.named('preBuild') { dependsOn 'gameAssets', 'cargoGenerator' }

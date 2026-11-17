@@ -1,23 +1,19 @@
-# App Android de gba-port (prueba)
+# App Android de gba-port
 
-**Estado: prueba que funciona** (2026-11-17, tablet Samsung por USB): arranca, juega a ~60 fps con controles táctiles y sonido. Falta que el teléfono genere el C del juego y el menú táctil.
+**Estado** (2026-11-17, tablet Samsung por USB): el teléfono **genera el C del juego desde la ROM que elige el usuario** y lo compila al arrancar; juega a ~60 fps con controles táctiles, menú táctil y sonido. En una tablet de gama alta: generar 0,8 s + compilar y enlazar con libtcc 1,9 s, cada vez que se abre el juego (no hay caché ni hace falta). **La ROM y nada derivado de ella van en el APK** (1,7 MB): el APK se puede repartir; la ROM se elige con el selector de documentos, se copia a la carpeta privada de la app y se comprueba su CRC32.
 
-En esta versión el C del juego se genera **en el PC** y se compila para arm64 dentro del APK. Ese C deriva de la ROM: **el APK no se reparte ni se sube**. La versión para repartir hará como `snes-recomp/android`: biblioteca del generador (Rust) y TinyCC en el dispositivo, con la ROM elegida por el usuario.
+Cómo funciona: `libmain.so` lleva el runtime y el frontal (`runtime/*.c`, clang -O2), la biblioteca del generador (Rust, `src/capi.rs`: `gba_gen_generate`) y `android_main.c`. Éste lee `files/rom.gba`, el perfil y las raíces dinámicas (assets), genera el C a `files/gen.c`, lo compila en memoria con **libtcc** (rama `mob` de TinyCC, `libtcc.so` aparte por la LGPL) con `rt_entry`/`rt_dispatch` renombradas (`-Drt_entry=gen_entry`) y los símbolos del runtime dados con `tcc_add_symbol`, borra `gen.c` y arranca `play.c`. `GameActivity` copia los assets a `files/assets` y enseña el aviso de progreso.
 
 ## Construir e instalar
 
 ```
-gba-recomp gen <rom.gba> <gen.c> --pointers --profile ../minishcap-recomp/games/minishcap_usa.toml
-# gradle.properties: gbaPort.genC = ruta del gen.c, gbaPort.sdlDir = SDL2 2.32.x, gbaPort.gameDir = games/<id> del juego
+# gradle.properties: gbaPort.sdlDir = SDL2 2.32.x, gbaPort.tinycc = TinyCC (rama mob, sin configurar), gbaPort.profile = games/<id>.toml del juego
 export ANDROID_HOME=~/Android JAVA_HOME=~/Android/jdk
-cd android && gradle --offline assembleDebug
+cd android && gradle --offline assembleDebug      # construye antes el generador: cargo rustc --lib --target aarch64-linux-android (rustup target add aarch64-linux-android)
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell mkdir -p /sdcard/Android/data/<applicationId>/files
-adb push <rom.gba> /sdcard/Android/data/<applicationId>/files/rom.gba
-adb shell am start -n <applicationId>/io.github.alekaydevs.gbaport.GameActivity
 ```
 
-Con Git Bash en Windows, `MSYS_NO_PATHCONV=1` evita que cambie las rutas `/sdcard/...`. Necesita NDK 27.2.12479018, CMake 3.22.1 y SDL2 (fuentes) como en snes-recomp. El C generado se compila con clang (`-O1`, unos 2 minutos).
+Necesita NDK 27.2.12479018, CMake 3.22.1, SDL2 y TinyCC (fuentes hermanas) y Rust. El perfil del juego aporta `dynamic_roots.txt` (junto al perfil) y el C propio (`games/<id>/text.c`, `options.c`, que van en `libmain.so`). La ROM la pone el usuario con el lanzador (o `adb push` a `/sdcard/Android/data/<applicationId>/files/rom.gba`; con Git Bash en Windows, `MSYS_NO_PATHCONV=1`). Medir: `adb logcat -s gbaport SDL/APP` (tiempos de preparación y «N fps» cada 600 fotogramas).
 
 ## Controles táctiles (`runtime/play_touch.h`)
 
@@ -29,4 +25,4 @@ Pantalla de inicio con los colores del juego: «Elegir ROM» abre el selector de
 
 ## Falta
 
-Generar y compilar el C en el dispositivo, menú del reproductor con el dedo (ahora solo con teclado externo), icono y nombre propios, firmar una versión, sonido comprobado a oído, ajuste del tamaño y la posición de los botones.
+Aviso de actualizaciones, licencias en la app, firmar una versión, sonido comprobado a oído, probar en un móvil (también de gama baja y en vertical), `NOTICE.txt`.

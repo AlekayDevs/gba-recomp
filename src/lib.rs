@@ -1,6 +1,8 @@
 //! gba-recomp: static recompiler for the Game Boy Advance (ARM7TDMI, ARM and Thumb).
 
 pub mod arm;
+pub mod capi;
+pub mod cgen;
 pub mod discover;
 pub mod gen;
 pub mod gen_arm;

@@ -86,9 +86,9 @@ Detalle en `..\minishcap-recomp\plan.md`. Resumen:
 
 ## Pendientes de Android
 
-Estado (2026-11-17): prueba que funciona en una tablet (`android/`): lanzador con selector de ROM (CRC32), controles táctiles con la estética del juego, ~60 fps. El C del juego va precompilado en el APK, así que **no es repartible**.
+Estado (2026-11-17): prueba que funciona en una tablet (`android/`): lanzador con selector de ROM (CRC32), controles táctiles con la estética del juego, ~60 fps. El C del juego lo genera el teléfono desde la ROM del usuario.
 
-- [ ] **Generar y compilar en el dispositivo**: biblioteca del generador (Rust, `staticlib`) + TinyCC en el móvil, como `snes-recomp/android`; la ROM elegida produce el C, que se compila al primer arranque y se guarda en caché (por CRC y versión). Sin esto no hay APK que repartir.
+- [x] **Generar y compilar en el dispositivo** (2026-11-17, probado en la tablet): `src/cgen.rs` (generación compartida con la línea de órdenes; `gen` da el mismo C byte a byte), `src/capi.rs` (biblioteca estática del generador) y libtcc: 0,8 s generando y 1,9 s compilando por arranque, 59,7 fps; el APK pesa 1,7 MB y no lleva nada derivado de la ROM, así que se puede repartir. Falta probarlo en gama baja.
 - [x] **Menú del reproductor con el dedo** (2026-11-17, probado en la tablet): botón MENU y botón atrás lo abren y lo cierran; toques en categorías y filas (mitad izquierda/derecha cambia el valor), botón X, arrastrar para desplazar listas largas, se redibuja siempre (presentar sin dibujar enseñaba búferes viejos). En Android «Controles» pasa a ser opacidad, tamaño y botones rápidos de los botones táctiles (se guardan en `config.ini`) y no salen las filas de teclado ni «Pantalla completa». Falta: probarlo en un móvil en vertical.
 - [ ] **Sonido**: comprobarlo a oído en el dispositivo (colchón de audio, latencia).
 - [ ] **Controles**: afinar tamaño y posición, ajustes (opacidad, tamaño, zurdos), vibración al pulsar, ocultarlos con mando conectado, y adaptarlos al juego (qué botones se usan más).

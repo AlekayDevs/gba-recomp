@@ -6,6 +6,7 @@ description = "Static recompiler for Game Boy Advance (ARM7TDMI) ROMs"
 publish = false
 
 [lib]
+crate-type = ["lib", "staticlib"]
 name = "gba_recomp"
 path = "src/lib.rs"
 

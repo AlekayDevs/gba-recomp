@@ -30,6 +30,14 @@ pub fn parse_roots(text: &str) -> Result<Vec<(u32, bool)>, String> {
 }
 
 pub fn parse(text: &str, dir: &Path) -> Result<Profile, String> {
+    parse_with(text, &|name: &str| {
+        let f = dir.join(name);
+        std::fs::read_to_string(&f).map_err(|e| format!("{}: {e}", f.display()))
+    })
+}
+
+/// Like `parse`, with the roots file read by `read_roots` (the Android app has it as text, not as a file).
+pub fn parse_with(text: &str, read_roots: &dyn Fn(&str) -> Result<String, String>) -> Result<Profile, String> {
     let mut p = Profile::default();
     let mut section = String::new();
     let (mut ram, mut rom, mut len) = (None, None, None);
@@ -59,8 +67,7 @@ pub fn parse(text: &str, dir: &Path) -> Result<Profile, String> {
             ("[[overlay]]", "len") => len = Some(hex(v)?),
             ("[resume]", "address") => p.resume = Some(hex(v)?),
             ("[roots]", "file") => {
-                let f = dir.join(v);
-                let t = std::fs::read_to_string(&f).map_err(|e| format!("{}: {e}", f.display()))?;
+                let t = read_roots(v)?;
                 p.roots.extend(parse_roots(&t)?);
             }
             _ => {}
