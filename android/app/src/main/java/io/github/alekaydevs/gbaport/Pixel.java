@@ -197,7 +197,9 @@ final class Pixel {
             int body = primary ? (down ? GOLD_LO : GOLD) : (down ? PRESS : STONE);
             plate(c, 0, off, w, h, p, body, primary ? GOLD_HI : STONE_HI, down);
             if (primary) rect(c, 3 * p, off + h - 5 * p, w - 3 * p, off + h - 4 * p, down ? GOLD_DK : GOLD_LO);
-            text(c, label, (w - textWidth(label, p)) / 2f, off + (h - 7 * p) / 2f - (down ? 0 : 0), p, primary ? OUTLINE : GOLD_HI, primary ? GOLD_HI : SHADOW);
+            int tp = p;   // si la etiqueta no cabe (columna estrecha), se dibuja con píxeles más pequeños
+            while (tp > 1 && textWidth(label, tp) > w - 8 * p) tp--;
+            text(c, label, (w - textWidth(label, tp)) / 2f, off + (h - 7 * tp) / 2f, tp, primary ? OUTLINE : GOLD_HI, primary ? GOLD_HI : SHADOW);
         }
     }
 
