@@ -1,7 +1,7 @@
 """Comprueba que nada de lo que se va a subir contiene bytes de una ROM ni derivados.
     python tools/scan.py [--history] [--rom ROM]...
   Sin --history mira los ficheros que git sigue (o tiene en el índice). Con --history mira todos los blobs del historial
-  que se puede alcanzar (lo que un push publicaría). Las ROM se buscan en --rom y, si no hay, en ../*/roms/*.gba y ./roms/*.gba.
+  de ramas, etiquetas y remotas (lo que un push publicaría; las referencias de otras herramientas, como refs/codex, no se miran). Las ROM se buscan en --rom y, si no hay, en ../*/roms/*.gba y ./roms/*.gba.
   Falla (código 1) si encuentra: ficheros con extensión de ROM/partida/volcado, trozos de 16 bytes de una ROM
   (huellas contiguas cada 16 bytes; se avisa con 3 o más distintas, o sea tramos copiados de unos 64 bytes o más, para que una frase suelta no dé falsas alarmas), o tablas C/hex de 64 bytes o más.
   Sin ninguna ROM a mano solo hace las comprobaciones de nombre y de tablas."""
@@ -55,7 +55,7 @@ def main():
     problems = []
     n = 0
     if history:
-        out = git('rev-list', '--objects', '--all').decode().splitlines()
+        out = git('rev-list', '--objects', '--branches', '--tags', '--remotes').decode().splitlines()
         names = {}
         for l in out:
             h, _, nm = l.partition(' ')
