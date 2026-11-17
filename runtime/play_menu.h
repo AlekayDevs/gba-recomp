@@ -724,6 +724,14 @@ static int menu_run(void) {
                     else if (e.key.keysym.scancode != SDL_SCANCODE_F1 && e.key.keysym.scancode != SDL_SCANCODE_F11) bind_set(menu_capture, 0, e.key.keysym.scancode);
                 } else if (e.type == SDL_CONTROLLERBUTTONDOWN) bind_set(menu_capture, 1, e.cbutton.button);
             }
+            else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT && e.button.which != SDL_TOUCH_MOUSEID) {
+                int ww, wh, sw, sh; SDL_GetRendererOutputSize(ren, &ww, &wh); SDL_GetWindowSize(SDL_RenderGetWindow(ren), &sw, &sh);
+                if (menu_touch((float)e.button.x * ww / (sw ? sw : 1), (float)e.button.y * wh / (sh ? sh : 1))) open = 0;
+            }
+            else if (e.type == SDL_MOUSEWHEEL && e.wheel.which != SDL_TOUCH_MOUSEID) {
+                int mx, my, ww, wh, sw, sh; SDL_GetMouseState(&mx, &my); SDL_GetRendererOutputSize(ren, &ww, &wh); SDL_GetWindowSize(SDL_RenderGetWindow(ren), &sw, &sh);
+                menu_drag((float)mx / (sw ? sw : 1), e.wheel.y * 0.04f);
+            }
             else if (e.type == SDL_FINGERMOTION) menu_drag(e.tfinger.x, e.tfinger.dy);
             else if (e.type == SDL_FINGERDOWN) { int ww, wh; SDL_GetRendererOutputSize(ren, &ww, &wh); if (menu_touch(e.tfinger.x * ww, e.tfinger.y * wh)) open = 0; }
             else if (e.type == SDL_KEYDOWN) {
