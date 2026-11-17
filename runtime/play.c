@@ -24,9 +24,62 @@ static Uint64 next_tick, freq;
 
 void sys_report(void) {} /* only the headless runner reports */
 
+
 #include "play_menu.h"
 #ifdef __ANDROID__
 #include "play_touch.h"
+
+#ifdef __ANDROID__
+/* Android: when the app goes to the background the OS may kill it at any time, so a state is saved first (<saves>/<rom>.auto) and a
+   marker left beside it; the next start loads it if the marker is still there, so the player continues exactly where they left. A
+   normal exit (menu, back) removes the marker. When the window loses focus (notifications, split screen) the game just pauses. */
+static char auto_path[560], auto_marker[570];
+static int focus_lost;   /* frames since the focus was lost: the "background" event comes ~400 ms later and must find the game running */
+static int bg_save, bg_wait;   /* 1: ask for the state, 2: waiting for it to be written; frames spent waiting */
+
+static void auto_clear(void) { if (auto_marker[0]) remove(auto_marker); }
+
+/* Waits (the game is stopped) until the window is back in front and has the focus. */
+static void wait_foreground(void) {
+    if (audio) SDL_PauseAudioDevice(audio, 1);
+    SDL_Event e;
+    for (;;) {
+        if (SDL_WaitEventTimeout(&e, 250)) {
+            if (e.type == SDL_QUIT) exit(0);
+            if (e.type == SDL_APP_TERMINATING) exit(0);
+            if (e.type == SDL_APP_DIDENTERFOREGROUND || (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)) break;
+        } else if (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) break;   /* a missed event must not leave it frozen */
+    }
+    if (audio) SDL_ClearQueuedAudio(audio);
+    apu_n = 0;
+    next_tick = 0; focus_lost = 0;
+    memset(tfinger, 0, sizeof tfinger);
+}
+
+/* Called at the start of every frame while a save for the background is pending: lets the game run on until the main loop writes it. */
+static int background_save(void) {
+    if (!bg_save) return 0;
+    if (++bg_wait > 180) {   /* no state point (intro, title): there is nothing to save, just wait for the way back */
+        SDL_Log("gbaport: no state point reached, not saving");
+        rt_state_req = 0;
+        bg_save = 0; bg_wait = 0;
+        wait_foreground();
+        return 1;
+    }
+    if (bg_save == 1 && !rt_state_req) {
+        snprintf(rt_state_path, sizeof rt_state_path, "%s", auto_path);
+        rt_state_req = 1;
+        bg_save = 2;
+    } else if (bg_save == 2 && !rt_state_req) {
+        bg_save = 0; bg_wait = 0;
+        SDL_Log("gbaport: state result: %s", rt_state_msg ? rt_state_msg : "(none)");
+        if (rt_state_msg && !strcmp(rt_state_msg, "state saved")) { FILE *m = fopen(auto_marker, "wb"); if (m) fclose(m); }
+        rt_state_msg = NULL;
+        wait_foreground();
+    }
+    return 1;
+}
+#endif
 #define TOUCH_KEYS() touch_mask()
 #define TOUCH_EVENT(e) touch_event(e)
 #define TOUCH_REWIND() touch_rewind
@@ -53,10 +106,18 @@ static u32 key_state(void) {
 
 static void on_frame(u32 frame) {
     if (menu_shot_path && frame == 900) menu_shot();
+#ifdef __ANDROID__
+    if (background_save()) return;
+#endif
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         TOUCH_EVENT(&e);
         if (e.type == SDL_QUIT) exit(0);
+#ifdef __ANDROID__
+        if (e.type == SDL_APP_WILLENTERBACKGROUND) { SDL_Log("gbaport: background, saving state to %s", auto_path); bg_save = 1; break; }   /* the rest of the events wait: the next poll would block */
+        if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) focus_lost = 1;
+        if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) focus_lost = 0;
+#endif
 #ifdef __ANDROID__
         if ((e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_AC_BACK) || touch_menu_req) { touch_menu_req = 0; if (menu_run()) exit(0); memset(tfinger, 0, sizeof tfinger); }
 #endif
@@ -88,6 +149,9 @@ static void on_frame(u32 frame) {
         if (e.type == SDL_CONTROLLERDEVICEADDED && !pad) pad = SDL_GameControllerOpen(e.cdevice.which);
         if (e.type == SDL_CONTROLLERDEVICEREMOVED && pad && e.cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad))) { SDL_GameControllerClose(pad); pad = NULL; }
     }
+#ifdef __ANDROID__
+    if (focus_lost && ++focus_lost > 45) { focus_lost = 0; wait_foreground(); }   /* focus gone but still in front (notifications, split screen): pause */
+#endif
     if (rt_state_msg && !strcmp(rt_state_msg, "no more history")) rt_state_msg = NULL; /* holding R at the start of the history */
     if (rt_state_msg) {
         char t[96]; snprintf(t, sizeof t, "gba-recomp - slot %d: %s", slot, rt_state_msg);
@@ -259,6 +323,20 @@ int main(int argc, char **argv) {
         }
         save_init(sav);
     }
+#ifdef __ANDROID__
+    if (state_base[0]) {
+        snprintf(auto_path, sizeof auto_path, "%s.auto", state_base);
+        snprintf(auto_marker, sizeof auto_marker, "%s.auto.on", state_base);
+        FILE *m = fopen(auto_marker, "rb");
+        if (m) {   /* the last run was cut off in the background: continue from its state */
+            fclose(m);
+            remove(auto_marker);
+            snprintf(rt_state_path, sizeof rt_state_path, "%s", auto_path);
+            rt_state_req = 2;
+        }
+        atexit(auto_clear);
+    }
+#endif
     sys_max_frames = 0;
     sys_frame_hook = on_frame;
     static Cpu cpu;

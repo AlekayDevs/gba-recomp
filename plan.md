@@ -95,7 +95,8 @@ Estado (2026-11-17): prueba que funciona en una tablet (`android/`): lanzador co
 - [x] **Diseño pixel art** (2026-11-17): botones táctiles como sprites de píxeles escalados por un factor entero (`runtime/play_touch.h`: placas verde bosque con marco de oro biselado, A esmeralda y B zafiro, gorra de Ezlo en la cruceta) y lanzador con fondo de bosque, título, botones y fuente de píxeles dibujados en código (`android/.../Pixel.java`). Probado en la tablet.
 - [~] **Lanzador**: icono (gorra de Ezlo, `tools/make_android_icon.py`) y nombre «Minish Cap» hechos; licencias hechas (botón en el lanzador, `android/NOTICE.txt`); avisos de versión nueva y actualización desde la app hechos y probados de extremo a extremo con la release v0.2 real (descarga, hash e instalación); falta varios juegos.
 - [ ] **Distribución**: firma de una versión (hecho el mecanismo: `gbaPort.keystore*` en `~/.gradle/gradle.properties`; clave creada el 2026-11-17 en `~/keys/gba-port.jks`, con copia de seguridad pendiente), `applicationId`, comprobar arm64 (endianness y tamaño de punteros), rendimiento y batería en gama baja.
-- [ ] **Otros**: ranuras de estado con miniatura, guardar al pasar a segundo plano, pausa al perder el foco, rotación y pantallas plegables.
+- [x] **Segundo plano** (2026-11-17, probado en la tablet): al pasar a segundo plano guarda un estado (`<rom>.auto`, con un marcador); en segundo plano la app está pausada (0 % de CPU); si Android la mata, el siguiente arranque continúa desde ese estado; una salida normal borra el marcador. Pausa también al perder el foco (notificaciones, pantalla partida). Solo guarda en el bucle principal del juego (no en la intro ni el título: ahí no hay punto de guardado de estado y no se guarda nada).
+- [ ] **Otros**: ranuras de estado con miniatura, rotación y pantallas plegables.
 
 ## Orden propuesto
 
