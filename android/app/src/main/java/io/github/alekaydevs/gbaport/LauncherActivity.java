@@ -65,7 +65,7 @@ public class LauncherActivity extends Activity {
     private Pixel.Button button(boolean primary) {
         Pixel.Button b = new Pixel.Button(this, primary);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        p.topMargin = 6 * Pixel.pixelScale(this);
+        p.topMargin = 4 * Pixel.pixelScale(this);
         p.gravity = Gravity.CENTER_HORIZONTAL;
         b.setLayoutParams(p);
         return b;
@@ -80,10 +80,23 @@ public class LauncherActivity extends Activity {
         frame.addView(new Pixel.Background(this), new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER);
         root.setPadding(10 * u, 10 * u, 10 * u, 10 * u);
-        root.addView(new Pixel.Title(this), new LinearLayout.LayoutParams(-1, -2));
+        // En horizontal (tablet o móvil tumbado) van dos columnas: título y estado a la izquierda, botones a la derecha; así todo cabe sin desplazar.
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        boolean wide = dm.widthPixels > dm.heightPixels * 1.2f;
+        LinearLayout left = root, right = root;
+        root.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        if (wide) {
+            left = new LinearLayout(this);
+            right = new LinearLayout(this);
+            for (LinearLayout col : new LinearLayout[] {left, right}) {
+                col.setOrientation(LinearLayout.VERTICAL);
+                col.setGravity(Gravity.CENTER);
+                root.addView(col, new LinearLayout.LayoutParams(0, -2, 1));
+            }
+        }
+        left.addView(new Pixel.Title(this), new LinearLayout.LayoutParams(-1, -2));
 
         Pixel.Panel panel = new Pixel.Panel(this);
         status = new TextView(this);
@@ -94,13 +107,13 @@ public class LauncherActivity extends Activity {
         LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-2, -2);
         pp.topMargin = 4 * u;
         pp.gravity = Gravity.CENTER_HORIZONTAL;
-        panel.setMinimumWidth(Math.min(getResources().getDisplayMetrics().widthPixels - 24 * u, 110 * u));
-        root.addView(panel, pp);
+        panel.setMinimumWidth(Math.min((wide ? dm.widthPixels / 2 : dm.widthPixels) - 24 * u, 110 * u));
+        left.addView(panel, pp);
 
         play = button(true);
         play.setLabel(t("Play", "Jugar"));
         play.setOnClickListener(v -> startActivity(new Intent(this, GameActivity.class)));
-        root.addView(play);
+        right.addView(play);
 
         pick = button(false);
         pick.setOnClickListener(v -> {
@@ -109,7 +122,7 @@ public class LauncherActivity extends Activity {
             i.setType("*/*");
             startActivityForResult(i, REQ_ROM);
         });
-        root.addView(pick);
+        right.addView(pick);
 
         licences = button(false);
         licences.setLabel(t("Licences", "Licencias"));
@@ -121,16 +134,16 @@ public class LauncherActivity extends Activity {
             auto.setChecked(UpdateChecker.enabled(this));
             auto.setOnCheckedChangeListener((b, on) -> UpdateChecker.setEnabled(this, on));
             LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-2, -2);
-            ap.topMargin = 6 * u;
+            ap.topMargin = 3 * u;
             ap.gravity = Gravity.CENTER_HORIZONTAL;
-            root.addView(auto, ap);
             check = button(false);
             check.setLabel(t("Check for updates", "Buscar actualizaciones"));
             check.setOnClickListener(v -> { if (pending != null) startUpdate(pending); else checkNow(); });
-            root.addView(check);
+            right.addView(check);
+            right.addView(auto, ap);
         }
 
-        root.addView(licences);
+        right.addView(licences);
 
         ScrollView sv = new ScrollView(this);
         sv.setFillViewport(true);

@@ -181,7 +181,7 @@ final class Pixel {
 
         @Override protected void onMeasure(int wm, int hm) {
             int w = Math.min(MeasureSpec.getSize(wm), Math.max(70 * p, textWidth(label, p) + 14 * p));
-            setMeasuredDimension(w, 22 * p);
+            setMeasuredDimension(w, (primary ? 22 : 17) * p);
         }
 
         @Override public boolean onTouchEvent(MotionEvent e) {
