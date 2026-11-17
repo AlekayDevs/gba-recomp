@@ -4,6 +4,9 @@ Estado a 2026-11-10. El motor es propio y estático (Rust), hermano de `snes-rec
 
 ## Hecho
 
+- **Carga segura de estados truncados (2026-11-17):** `runtime/gba_state.c` lee y valida el estado completo antes de modificar la máquina. Antes, un archivo truncado restauraba la CPU pero dejaba RAM y dispositivos parcialmente sobrescritos. Regresión en `runtime/state_test.c`: 15 comprobaciones (tres puntos de truncado y una carga válida), sin ROM. Compilar como `bios_test.c`, sustituyendo ese archivo por `state_test.c`, y ejecutar en una carpeta temporal: crea `state-test-*.sst`. Verificados también guardar/cargar y 40 pasos de rebobinado en Minish Cap.
+- Las 59 comprobaciones de BIOS y 15 de estados pasan con TinyCC/Windows y GCC/Linux. Se quitó la definición duplicada de `rt_site` de los tests (la proporciona `gba_sys.c`); GCC la rechazaba. El repositorio de Minish Cap ejecuta estos tests desde `scripts/check.ps1` y `scripts/check.sh` cuando hay compilador.
+
 - **El juego arranca y llega al título y a «CHOOSE A FILE» pulsando Start** (*Minish Cap*, sin ventana): traducción de Thumb y ARM a C (7095 de 7095 funciones), runtime con bus, E/S, DMA, temporizadores, interrupciones, BIOS por HLE y PPU por líneas; `tools/complete.sh` completa los saltos dinámicos que el análisis no ve (la ejecución los pide uno a uno). Pendiente: sonido, el resto de la BIOS y la jugabilidad.
 
 - Lector de ROM: cabecera, comprobaciones, CRC32, espejos (`0x08/0x0A/0x0C`) y *overlays* (bloques que el arranque copia a RAM).

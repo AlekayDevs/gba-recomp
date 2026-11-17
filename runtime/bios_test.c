@@ -7,7 +7,6 @@
 
 void sys_report(void) {}
 void rt_dispatch(Cpu *c, u32 t) { (void)c; (void)t; }
-u32 rt_site;
 
 static int fails, total;
 #define CHECK(cond, ...) do { total++; if (!(cond)) { fails++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)

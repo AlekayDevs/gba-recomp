@@ -164,9 +164,14 @@ void rt_state_point(Cpu *c) {
     else if (fread(m, 1, 8, s.f) != 8 || memcmp(m, magic, 8)) { fclose(s.f); rt_state_msg = "not a state of this program"; return; }
     if (s.save) { all(&s, c); }
     else {
-        Cpu keep = *c;
-        all(&s, c);
-        if (s.err) *c = keep; /* a bad file leaves the CPU as it was (memory may be half loaded: reload again or reset) */
+        /* Stage and validate the whole file before touching RAM or device state. mem_save also gives the expected size. */
+        uint8_t *loaded = malloc(STATE_MAX);
+        size_t n = loaded ? mem_save(c, loaded) : 0;
+        if (!n) { free(loaded); fclose(s.f); rt_state_msg = "cannot prepare the state load"; return; }
+        if (fread(loaded, 1, n, s.f) != n) s.err = 1;
+        else if (memcmp(loaded, rt_rom + 0xA0, 0x20)) s.err = 2;
+        else if (!mem_load(c, loaded, n)) s.err = 1;
+        free(loaded);
     }
     fclose(s.f);
     if (s.err == 2) rt_state_msg = "the state is from another game";
