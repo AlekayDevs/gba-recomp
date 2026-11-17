@@ -43,6 +43,8 @@ public class LauncherActivity extends Activity {
     private TextView status;
     private Pixel.Button play, pick, licences, check;
     private CheckBox auto;
+    /** La release nueva encontrada, si la hay: el botón pasa a «Actualizar». */
+    private UpdateChecker.Result pending;
 
     private String t(String en, String sp) { return es ? sp : en; }
 
@@ -124,7 +126,7 @@ public class LauncherActivity extends Activity {
             root.addView(auto, ap);
             check = button(false);
             check.setLabel(t("Check for updates", "Buscar actualizaciones"));
-            check.setOnClickListener(v -> checkNow());
+            check.setOnClickListener(v -> { if (pending != null) startUpdate(pending); else checkNow(); });
             root.addView(check);
         }
 
@@ -154,25 +156,25 @@ public class LauncherActivity extends Activity {
 
     private void offer(UpdateChecker.Result r) {
         if (isFinishing() || isDestroyed()) return;
-        if (r.ok && r.newer && !UpdateChecker.skipped(this, r.tag)) showUpdateDialog(r);
+        if (r.ok && r.newer) found(r);
     }
 
     private String newVersionText(UpdateChecker.Result r) {
         return String.format(t("There is a new version: %1$s (you have %2$s).", "Hay una versión nueva: %1$s (tienes %2$s)."), r.tag, UpdateChecker.installedVersion(this));
     }
 
-    /** «Descargar e instalar» baja el APK de la release, comprueba su hash y lo instala; sin APK en la release abre su página. */
-    private void showUpdateDialog(UpdateChecker.Result r) {
-        new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
-            .setTitle(t("New version", "Versión nueva"))
-            .setMessage(newVersionText(r))
-            .setPositiveButton(r.canInstall() ? t("Download and install", "Descargar e instalar") : t("Open release page", "Abrir la página de la release"), (d, w) -> {
-                if (r.canInstall()) installUpdate(r);
-                else startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(r.url)));
-            })
-            .setNegativeButton(t("Not now", "Ahora no"), null)
-            .setNeutralButton(t("Skip this version", "Omitir esta versión"), (d, w) -> UpdateChecker.skip(this, r.tag))
-            .show();
+    /** Hay versión nueva: lo dice en pantalla y el botón de buscar pasa a «Actualizar». */
+    private void found(UpdateChecker.Result r) {
+        pending = r;
+        status.setText(newVersionText(r));
+        check.setLabel(t("Update", "Actualizar"));
+        check.setEnabled(true);
+    }
+
+    /** «Actualizar» baja el APK de la release, comprueba su hash y lo instala; sin APK en la release abre su página. */
+    private void startUpdate(UpdateChecker.Result r) {
+        if (r.canInstall()) installUpdate(r);
+        else startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(r.url)));
     }
 
     /** Pide el permiso de instalar desde esta app si falta; si no, descarga con una barra de progreso y entrega el APK al sistema. */
@@ -227,10 +229,7 @@ public class LauncherActivity extends Activity {
                 check.setEnabled(true);
                 if (!r.ok) status.setText(t("Could not check. Check your connection and try again.", "No se pudo comprobar. Revisa la conexión e inténtalo de nuevo."));
                 else if (!r.newer) status.setText(String.format(t("You are up to date (version %1$s).", "Estás al día (versión %1$s)."), UpdateChecker.installedVersion(this)));
-                else {
-                    status.setText(newVersionText(r));
-                    showUpdateDialog(r);
-                }
+                else found(r);
             });
         }).start();
     }
