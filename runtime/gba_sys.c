@@ -185,8 +185,7 @@ static void sys_step_line(Cpu *c, int deliver) {
 #endif
         if (sys_frame_hook) sys_frame_hook(sys_frames);
         if (sys_max_frames && sys_frames >= sys_max_frames) {
-            fprintf(stderr, "stopped after %u frames
-", sys_frames);
+            fprintf(stderr, "stopped after %u frames\n", sys_frames);
             sys_report();
             exit(0);
         }

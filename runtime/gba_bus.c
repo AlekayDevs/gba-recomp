@@ -27,8 +27,7 @@ static void wtrace(u32 a, u32 v, int bits) {
         last_sig = sig; rt_wtrace_left--;
         printf("wwrite %08X = %08X (%d)  rom:", a, v, bits);
         for (int i = 0; i < 8; i++) printf(" %06X", rom_ring[(rom_ring_n + i) & 7]);
-        printf("
-");
+        printf("\n");
         return;
     }
     if (bits == 16) hit = (v & 0xFFFF) == (want & 0xFFFF);
@@ -38,16 +37,14 @@ static void wtrace(u32 a, u32 v, int bits) {
     rt_wtrace_left--;
     printf("wwrite %08X = %08X (%d)  rom:", a, v, bits);
     for (int i = 0; i < 8; i++) printf(" %06X", rom_ring[(rom_ring_n + i) & 7]);
-    printf("
-");
+    printf("\n");
 }
 static void vtrace(u32 off, u32 v) {
     if (!rt_vtrace_left || off < rt_vtrace_lo || off >= rt_vtrace_hi || !v) return;
     rt_vtrace_left--;
     printf("vwrite %05X = %04X  rom:", off, v);
     for (int i = 0; i < 8; i++) printf(" %06X", rom_ring[(rom_ring_n + i) & 7]);
-    printf("
-");
+    printf("\n");
 }
 #else
 #define ROM_HIT(o) ((void)0)

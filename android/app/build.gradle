@@ -1,0 +1,30 @@
+// App Android de gba-port: la prueba con el juego precompilado en el APK (ver android/README.md).
+plugins {
+    id 'com.android.application'
+}
+
+def repo = rootProject.file('..').canonicalPath
+def sdl = rootProject.file(providers.gradleProperty('gbaPort.sdlDir').get()).canonicalPath
+def genC = rootProject.file(providers.gradleProperty('gbaPort.genC').get()).canonicalPath
+def gameDir = rootProject.file(providers.gradleProperty('gbaPort.gameDir').get()).canonicalPath
+
+android {
+    namespace 'io.github.alekaydevs.gbaport'
+    compileSdk 35
+    ndkVersion '27.2.12479018'
+    defaultConfig {
+        applicationId providers.gradleProperty('gbaPort.applicationId').get()
+        minSdk 29
+        targetSdk 35
+        versionCode 1
+        versionName '0.1'
+        ndk { abiFilters 'arm64-v8a' }
+        externalNativeBuild {
+            cmake { arguments "-DGBA_RECOMP_DIR=${repo}", "-DSDL2_DIR=${sdl}", "-DGBA_GEN_C=${genC}", "-DGBA_GAME_DIR=${gameDir}" }
+        }
+    }
+    externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt'; version '3.22.1' } }
+    lint { checkReleaseBuilds false }
+    packaging { jniLibs { useLegacyPackaging true } }
+    sourceSets { main { java.srcDirs += "${sdl}/android-project/app/src/main/java" } }
+}

@@ -13,3 +13,9 @@ dump_*.bin
 *.wav
 *.state
 *.exe
+# Android: lo que construye Gradle
+android/.gradle/
+android/app/build/
+android/app/.cxx/
+android/local.properties
+*.apk

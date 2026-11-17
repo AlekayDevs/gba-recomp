@@ -25,6 +25,16 @@ static Uint64 next_tick, freq;
 void sys_report(void) {} /* only the headless runner reports */
 
 #include "play_menu.h"
+#ifdef __ANDROID__
+#include "play_touch.h"
+#define TOUCH_KEYS() touch_mask()
+#define TOUCH_EVENT(e) touch_event(e)
+#define TOUCH_REWIND() touch_rewind
+#else
+#define TOUCH_KEYS() 0u
+#define TOUCH_EVENT(e) ((void)0)
+#define TOUCH_REWIND() 0
+#endif
 
 static u32 key_state(void) {
     const Uint8 *k = SDL_GetKeyboardState(NULL);
@@ -33,6 +43,7 @@ static u32 key_state(void) {
         if (k[kb[i]]) r |= 1u << i;
         if (pad && SDL_GameControllerGetButton(pad, (SDL_GameControllerButton)pb[i])) r |= 1u << i;
     }
+    r |= TOUCH_KEYS();
     if (pad) {
         int ax = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX), ay = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY);
         r |= ax > 16000 ? 16 : 0; r |= ax < -16000 ? 32 : 0; r |= ay < -16000 ? 64 : 0; r |= ay > 16000 ? 128 : 0;
@@ -44,8 +55,13 @@ static void on_frame(u32 frame) {
     if (menu_shot_path && frame == 900) menu_shot();
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
+        TOUCH_EVENT(&e);
         if (e.type == SDL_QUIT) exit(0);
-        if (e.type == SDL_KEYDOWN && (e.key.keysym.sym == SDLK_ESCAPE || e.key.keysym.sym == SDLK_F1)) { if (menu_run()) exit(0); }
+        if (e.type == SDL_KEYDOWN && (
+#ifndef __ANDROID__
+            e.key.keysym.sym == SDLK_ESCAPE ||
+#endif
+            e.key.keysym.sym == SDLK_F1)) { if (menu_run()) exit(0); }
         if (e.type == SDL_CONTROLLERBUTTONDOWN && pad && e.cbutton.button == SDL_CONTROLLER_BUTTON_START
             && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_BACK)) { if (menu_run()) exit(0); }
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_F11) {
@@ -72,8 +88,7 @@ static void on_frame(u32 frame) {
     if (rt_state_msg && !strcmp(rt_state_msg, "no more history")) rt_state_msg = NULL; /* holding R at the start of the history */
     if (rt_state_msg) {
         char t[96]; snprintf(t, sizeof t, "gba-recomp - slot %d: %s", slot, rt_state_msg);
-        SDL_SetWindowTitle(win, t); printf("slot %d: %s
-", slot, rt_state_msg); rt_state_msg = NULL;
+        SDL_SetWindowTitle(win, t); printf("slot %d: %s\n", slot, rt_state_msg); rt_state_msg = NULL;
     }
     /* sound: the samples of this frame go to the device; when it is far ahead (fast forward, a pause) they are dropped */
     if (audio) {
@@ -98,7 +113,7 @@ static void on_frame(u32 frame) {
     }
     apu_n = 0;
     /* rewind: a state every 3 frames while the game runs; holding R (or L3) goes back one step per frame */
-    int rewinding = cfg.rewind && (SDL_GetKeyboardState(NULL)[SDL_SCANCODE_R] || (pad && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_LEFTSTICK)));
+    int rewinding = cfg.rewind && (SDL_GetKeyboardState(NULL)[SDL_SCANCODE_R] || (pad && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_LEFTSTICK)) || TOUCH_REWIND());
     if (cfg.rewind && !rt_state_req) {
         if (rewinding) rt_state_req = 4;
         else if (frame % 3 == 0) rt_state_req = 3;
@@ -120,7 +135,16 @@ static void on_frame(u32 frame) {
     SDL_RenderClear(ren);
     if (cfg.borders) draw_bars();
     SDL_RenderCopy(ren, tex, NULL, NULL);
+#ifdef __ANDROID__
+    touch_draw(sys_keys);
+#endif
     SDL_RenderPresent(ren);
+#ifdef __ANDROID__
+    { /* frames per second, to logcat every 600 frames: adb logcat -s gbaport */
+        static Uint32 t0; static int n;
+        if (++n == 600) { Uint32 t = SDL_GetTicks(); SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "gbaport: %.1f fps", 600000.0 / (t - t0 ? t - t0 : 1)); t0 = t; n = 0; }
+    }
+#endif
     /* pace: 280896 cycles at 16.78 MHz per frame; Tab = fast forward */
     int fast = SDL_GetKeyboardState(NULL)[SDL_SCANCODE_TAB];
     Uint64 now = SDL_GetPerformanceCounter(), period = (Uint64)((double)freq * 280896.0 / 16777216.0);
@@ -187,13 +211,15 @@ int main(int argc, char **argv) {
     if (!ren) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     SDL_RenderSetLogicalSize(ren, 240, 160);
     apply_video();
+#ifdef __ANDROID__
+    touch_init();
+#endif
     {
         SDL_AudioSpec want, have;
         SDL_zero(want);
         want.freq = 32768; want.format = AUDIO_S16SYS; want.channels = 2; want.samples = 512;
         audio = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
-        if (audio) SDL_PauseAudioDevice(audio, 1); else fprintf(stderr, "no audio: %s
-", SDL_GetError());
+        if (audio) SDL_PauseAudioDevice(audio, 1); else fprintf(stderr, "no audio: %s\n", SDL_GetError());
     }
     freq = SDL_GetPerformanceFrequency();
     for (int i = 0; i < SDL_NumJoysticks(); i++) if (SDL_IsGameController(i)) { pad = SDL_GameControllerOpen(i); break; }

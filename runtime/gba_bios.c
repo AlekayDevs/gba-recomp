@@ -173,8 +173,7 @@ void bios_wait_report(void) {
     u32 total = 0;
     for (int i = 0; i < 8; i++) total += wait_hist[i];
     if (!total) return;
-    printf("main loop (VBlankIntrWait): %u waits; frames between two: 0:%u 1:%u 2:%u 3:%u 4:%u 5:%u 6:%u 7+:%u
-", total,
+    printf("main loop (VBlankIntrWait): %u waits; frames between two: 0:%u 1:%u 2:%u 3:%u 4:%u 5:%u 6:%u 7+:%u\n", total,
            wait_hist[0], wait_hist[1], wait_hist[2], wait_hist[3], wait_hist[4], wait_hist[5], wait_hist[6], wait_hist[7]);
 }
 

@@ -68,8 +68,7 @@ void bios_wait_report(void);
 void sys_report(void) {
     wav_close();
     bios_wait_report();
-    printf("audio: %u frames of 32768 Hz, peak %u
-", wav_frames, audio_peak);
+    printf("audio: %u frames of 32768 Hz, peak %u\n", wav_frames, audio_peak);
     u32 pal = 0;
     for (int i = 0; i < 512; i++) if (rt_pal[i * 2] | rt_pal[i * 2 + 1]) pal++;
     printf("frames %u  DISPCNT %04X  BG0CNT %04X  IE %04X  IME %u\n", sys_frames, io_get16(IO_DISPCNT), io_get16(0x08), io_get16(IO_IE), io_get16(IO_IME));
@@ -112,8 +111,7 @@ static void on_frame(u32 f) {
         else if (f >= rw_from && rw_done < rw_steps) { rt_state_req = 4; rw_done++; }
     }
     for (int i = 0; i < n_states; i++) if (states[i].frame == f) { snprintf(rt_state_path, sizeof rt_state_path, "%s", states[i].path); rt_state_req = states[i].what; }
-    if (rt_state_msg) { printf("frame %u: %s
-", f, rt_state_msg); rt_state_msg = NULL; }
+    if (rt_state_msg) { printf("frame %u: %s\n", f, rt_state_msg); rt_state_msg = NULL; }
     for (u32 i = 0; i < apu_n * 2; i++) { u32 a = apu_out[i] < 0 ? -apu_out[i] : apu_out[i]; if (a > audio_peak) audio_peak = a; }
     if (wav) fwrite(apu_out, 4, apu_n, wav);
     wav_frames += apu_n; apu_n = 0;
@@ -158,8 +156,7 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i], "--rewind-test") && i + 1 < argc) { if (sscanf(argv[++i], "%u:%u", &rw_from, &rw_steps) != 2) return 2; rt_rewind_verify = 1; continue; }
         if ((!strcmp(argv[i], "--save-state") || !strcmp(argv[i], "--load-state")) && i + 1 < argc && n_states < 8) {
             states[n_states].what = argv[i][2] == 's' ? 1 : 2;
-            if (sscanf(argv[++i], "%u:%259s", &states[n_states].frame, states[n_states].path) != 2) { fprintf(stderr, "bad --save-state/--load-state (FRAME:file)
-"); return 2; }
+            if (sscanf(argv[++i], "%u:%259s", &states[n_states].frame, states[n_states].path) != 2) { fprintf(stderr, "bad --save-state/--load-state (FRAME:file)\n"); return 2; }
             n_states++; continue;
         }
 #ifdef RT_ROMSTAT
