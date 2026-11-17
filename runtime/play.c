@@ -110,6 +110,9 @@ static void on_frame(u32 frame) {
 #ifdef __ANDROID__
     if (background_save()) return;
 #endif
+#ifdef __ANDROID__
+    SDL_RenderSetLogicalSize(ren, 0, 0); /* with a logical size the renderer maps the touches into it: the buttons need the real window */
+#endif
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         TOUCH_EVENT(&e);
@@ -155,6 +158,7 @@ static void on_frame(u32 frame) {
 #endif
     if (rt_state_msg && !strcmp(rt_state_msg, "no more history")) rt_state_msg = NULL; /* holding R at the start of the history */
     if (rt_state_msg) {
+        if (!strcmp(rt_state_msg, "state saved")) thumb_save(rt_state_path);
         char t[96]; snprintf(t, sizeof t, "gba-recomp - slot %d: %s", slot, rt_state_msg);
         SDL_SetWindowTitle(win, t); printf("slot %d: %s\n", slot, rt_state_msg); rt_state_msg = NULL;
     }
@@ -201,12 +205,28 @@ static void on_frame(u32 frame) {
     } else
     SDL_UpdateTexture(tex, NULL, ppu_frame, 240 * 4);
     SDL_RenderClear(ren);
+#ifdef __ANDROID__
+    if (touch_portrait()) { /* upright: the picture across the top, the buttons in the space below */
+        int tw0, th0;
+        SDL_GetRendererOutputSize(ren, &tw0, &th0);
+        SDL_RenderSetLogicalSize(ren, 0, 0);
+        SDL_Rect d = {0, 0, tw0, tw0 * 2 / 3};
+        SDL_RenderCopy(ren, tex, NULL, &d);
+    } else {
+        SDL_RenderSetLogicalSize(ren, 240, 160);
+#endif
     if (cfg.borders) draw_bars();
     SDL_RenderCopy(ren, tex, NULL, NULL);
+#ifdef __ANDROID__
+    }
+#endif
 #ifdef __ANDROID__
     touch_draw(sys_keys);
 #endif
     SDL_RenderPresent(ren);
+#ifdef __ANDROID__
+    SDL_RenderSetLogicalSize(ren, 0, 0); /* at rest: SDL maps a touch through the logical size when it arrives, not when it is polled */
+#endif
 #ifdef __ANDROID__
     { /* frames per second, to logcat every 600 frames: adb logcat -s gbaport */
         static Uint32 t0; static int n;

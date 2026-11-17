@@ -530,6 +530,49 @@ static void drawer_draw(Canvas *c) {
 }
 
 /* The picture of the game in the area right of the drawer, with the scaling and smoothing of the settings. */
+/* A small picture (120 by 80) of the game saved beside each state slot: <state file>.thumb, raw RGB. It only lives on the player's device. */
+static void thumb_save(const char *state_path) {
+    char p[560];
+    if (!strstr(state_path, ".s") || strstr(state_path, ".auto")) return;
+    snprintf(p, sizeof p, "%s.thumb", state_path);
+    FILE *f = fopen(p, "wb");
+    if (!f) return;
+    static uint8_t t[120 * 80 * 3];
+    for (int y = 0; y < 80; y++)
+        for (int x = 0; x < 120; x++) {
+            unsigned r = 0, g = 0, b = 0;
+            for (int j = 0; j < 4; j++) { uint32_t q = ppu_frame[y * 2 + j / 2][x * 2 + j % 2]; r += q >> 16 & 255; g += q >> 8 & 255; b += q & 255; }
+            t[(y * 120 + x) * 3] = (uint8_t)(r / 4); t[(y * 120 + x) * 3 + 1] = (uint8_t)(g / 4); t[(y * 120 + x) * 3 + 2] = (uint8_t)(b / 4);
+        }
+    fwrite(t, 1, sizeof t, f);
+    fclose(f);
+}
+
+/* In the States tab the picture next to the drawer is the one saved in the chosen slot (an empty frame when there is none). */
+static void thumb_blit(uint32_t *win, int ww, int wh, int ax, int aw) {
+    static uint8_t t[120 * 80 * 3];
+    char p[600];
+    snprintf(p, sizeof p, "%s.s%d.thumb", state_base, slot);
+    FILE *f = fopen(p, "rb");
+    int ok = f && fread(t, 1, sizeof t, f) == sizeof t;
+    if (f) fclose(f);
+    if (aw < 120) return;
+    int s = aw / 130 < wh / 90 ? aw / 130 : wh / 90;
+    if (s < 1) s = 1;
+    int dw = 120 * s, dh = 80 * s, ox = ax + (aw - dw) / 2, oy = (wh - dh) / 2;
+    for (int y = -2; y < dh + 2; y++) {
+        if (oy + y < 0 || oy + y >= wh) continue;
+        for (int x = -2; x < dw + 2; x++) {
+            if (ox + x < 0 || ox + x >= ww) continue;
+            uint32_t v;
+            if (x < 0 || y < 0 || x >= dw || y >= dh) v = th_gold;
+            else if (ok) { const uint8_t *q = t + ((y / s) * 120 + x / s) * 3; v = (uint32_t)q[0] << 16 | (uint32_t)q[1] << 8 | q[2]; }
+            else v = ui_mix(th_bg, 0x000000, 1, 2);
+            win[(size_t)(oy + y) * ww + ox + x] = v;
+        }
+    }
+}
+
 static void game_blit(uint32_t *win, int ww, int wh, int ax, int aw) {
     int dw, dh;
     if (aw < 120) return;
@@ -573,7 +616,7 @@ static void menu_compose(uint32_t *win, int ww, int wh) {
     if (k < 1) k = 1;
     int cw = ww / k, ch = wh / k, dw = cw < 290 ? cw : 290;
     for (int i = 0; i < ww * wh; i++) win[i] = th_bg;
-    game_blit(win, ww, wh, dw * k, ww - dw * k);
+    if (menu_tab == 4) thumb_blit(win, ww, wh, dw * k, ww - dw * k); else game_blit(win, ww, wh, dw * k, ww - dw * k);
     static uint8_t *buf; static size_t cap;
     size_t need = (size_t)dw * ch * 3;
     if (need > cap) { free(buf); buf = malloc(need); cap = need; }

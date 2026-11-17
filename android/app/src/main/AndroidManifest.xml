@@ -8,20 +8,20 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Instalar la actualización descargada desde la app (UpdateInstaller): Android pide permitirlo la primera vez. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <application android:label="Minish Cap" android:icon="@mipmap/ic_launcher" android:allowBackup="false" android:hasCode="true">
+    <application android:label="Minish Cap" android:icon="@mipmap/ic_launcher" android:allowBackup="false" android:hasCode="true" android:resizeableActivity="true">
         <receiver android:name=".UpdateReceiver" android:exported="false" />
         <activity
             android:name=".GameActivity"
             android:exported="false"
             android:launchMode="singleTask"
             android:configChanges="keyboardHidden|keyboard|orientation|screenSize|screenLayout|uiMode|smallestScreenSize|density"
-            android:screenOrientation="sensorLandscape"
+            android:screenOrientation="sensor"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
         </activity>
         <activity
             android:name=".LauncherActivity"
             android:exported="true"
-            android:screenOrientation="sensorLandscape"
+            android:screenOrientation="sensor"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -19,3 +19,4 @@ android/app/build/
 android/app/.cxx/
 android/local.properties
 *.apk
+*.thumb

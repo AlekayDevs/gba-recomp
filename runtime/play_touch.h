@@ -20,6 +20,12 @@ static int touch_rewind, touch_seen; /* touch_seen: the screen has been touched 
 static int tw, th;
 static float tu;
 
+static int touch_portrait(void) { /* the window is taller than wide: the picture goes on top, the buttons below */
+    int w, h;
+    SDL_GetRendererOutputSize(ren, &w, &h);
+    return h > w;
+}
+
 static void touch_layout(void) {
     SDL_GetRendererOutputSize(ren, &tw, &th);
     tu = (tw < th ? tw : th) / 8.5f * cfg.t_size / 100.0f;
@@ -45,6 +51,12 @@ static void touch_layout(void) {
             q->w = wd[k] * ub; q->h = 0.6f * ub; q->cx = x + q->w / 2; q->cy = (wide ? 0.4f : 1.55f) * ub;
             x += q->w + gap;
         }
+    }
+    if (th > tw) { /* upright: L and R and the row of small buttons go right under the picture (2/3 of the width tall) */
+        float ph = tw * 2.0f / 3.0f;
+        b[TB_DPAD].cy = th - 2.6f * tu; b[TB_A].cy = th - 3.0f * tu; b[TB_B].cy = th - 1.7f * tu; /* more room upright: the pad and A and B do not touch */
+        b[TB_L].cy = b[TB_R].cy = ph + 0.8f * tu;
+        for (int k = 7; k <= 10; k++) b[k].cy = ph + 2.1f * tu;
     }
     for (int i = 0; i < TB_N; i++) { /* what the player edited: offset and size of each button */
         float sc = cfg.tb_sc[i] / 100.0f;
