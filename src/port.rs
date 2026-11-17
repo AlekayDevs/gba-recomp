@@ -330,6 +330,27 @@ fn theme_args(game: &Game) -> Vec<String> {
     vec!["--brand".into(), b.name, "--theme".into(), format!("{},{},{},{}", rgb(t.bg), rgb(t.panel), rgb(t.gold), rgb(t.ink))]
 }
 
+/// The languages of the game's text the player offers, in the order of its menu: (`language=` code in config.ini, name).
+pub const GAME_LANGUAGES: &[(&str, &str)] = &[("", "English"), ("es", "Espa\u{f1}ol")];
+
+/// The index into `GAME_LANGUAGES` of the `language=` line of `config.ini` in the saves folder (0 when there is none).
+pub fn config_language(saves: &Path) -> usize {
+    let text = std::fs::read_to_string(saves.join("config.ini")).unwrap_or_default();
+    let code = text.lines().find_map(|l| l.trim().strip_prefix("language=")).unwrap_or("").trim().to_string();
+    GAME_LANGUAGES.iter().position(|(c, _)| *c == code).unwrap_or(0)
+}
+
+/// Writes the `language=` line of `config.ini` (the other lines stay); the player reads it when it starts.
+pub fn set_config_language(saves: &Path, index: usize) {
+    let code = GAME_LANGUAGES.get(index).map(|l| l.0).unwrap_or("");
+    let _ = std::fs::create_dir_all(saves);
+    let path = saves.join("config.ini");
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut out: Vec<String> = text.lines().filter(|l| !l.trim().starts_with("language=")).map(String::from).collect();
+    out.insert(out.iter().take_while(|l| l.starts_with('#')).count(), format!("language={code}"));
+    let _ = std::fs::write(&path, out.join("\n") + "\n");
+}
+
 /// Where saves and save states go: `saves/` next to the profiles (so, next to the program in a package), or in the
 /// cache when that folder cannot be written.
 pub fn saves_dir(o: &Options) -> PathBuf {
@@ -367,6 +388,27 @@ pub fn recalled_rom(cache: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn language_line_of_config_ini() {
+        let dir = std::env::temp_dir().join(format!("gba-port-cfg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(config_language(&dir), 0);
+        set_config_language(&dir, 1);
+        assert_eq!(config_language(&dir), 1);
+        // the other lines and the header comment stay, and there is only one language line
+        std::fs::write(dir.join("config.ini"), "# header
+language=es
+volume=60
+").unwrap();
+        set_config_language(&dir, 0);
+        let t = std::fs::read_to_string(dir.join("config.ini")).unwrap();
+        assert_eq!(t, "# header
+language=
+volume=60
+");
+        assert_eq!(config_language(&dir), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     #[test]
     fn game_header() {
         let t = "[game]\nid = \"x\"\ntitle = \"X Game\"\ncrc32 = \"ABCEBBB1\"  # c\n[[overlay]]\nid = \"no\"\n";

@@ -46,6 +46,7 @@ pub enum Key {
     BuildFailedTitle,
     GameFailedTitle,
     UpdateCheckbox,
+    GameLanguage,
     UpdateTitle,
     /// `{tag}` and `{current}` are replaced.
     UpdateAsk,
@@ -83,6 +84,7 @@ pub fn text(lang: Lang, key: Key) -> &'static str {
             BuildFailedTitle => "The game could not be built",
             GameFailedTitle => "The game stopped with an error",
             UpdateCheckbox => "Check for updates (uses the Internet)",
+            GameLanguage => "Language",
             UpdateTitle => "New version",
             UpdateAsk => "Version {tag} is available (you have {current}).\n\nYes: download and install it now (your saves stay).\nNo: not now.\nCancel: skip this version.",
             UpdateUpToDate => "You are up to date.",
@@ -115,6 +117,7 @@ pub fn text(lang: Lang, key: Key) -> &'static str {
             BuildFailedTitle => "No se pudo construir el juego",
             GameFailedTitle => "El juego se cerró con un error",
             UpdateCheckbox => "Buscar actualizaciones (usa Internet)",
+            GameLanguage => "Idioma",
             UpdateTitle => "Versión nueva",
             UpdateAsk => "Hay una versión nueva: {tag} (tienes la {current}).\n\nSí: descargarla e instalarla ahora (las partidas se conservan).\nNo: ahora no.\nCancelar: omitir esta versión.",
             UpdateUpToDate => "Estás al día.",
@@ -364,7 +367,7 @@ gold = \"nope\"
         use Key::*;
         let all = [
             WindowTitle, Tagline, PickPrompt, PickTitle, PickFilter, PickAction, ChangeAction, PlayAction, PlayWith, FirstBuild, Working, CopyDetail,
-            Copied, Close, ChooseAnother, Yes, ErrorTitle, UnknownRomTitle, NoCompilerTitle, BuildFailedTitle, GameFailedTitle, UpdateCheckbox, UpdateTitle,
+            Copied, Close, ChooseAnother, Yes, ErrorTitle, UnknownRomTitle, NoCompilerTitle, BuildFailedTitle, GameFailedTitle, UpdateCheckbox, GameLanguage, UpdateTitle,
             UpdateAsk, UpdateUpToDate, UpdateUnreachable, Updating, UpdateDone, UpdateFailed,
         ];
         for k in all {

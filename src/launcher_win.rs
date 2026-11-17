@@ -60,6 +60,7 @@ const ID_PRIMARY: i32 = 1;
 const ID_SECONDARY: i32 = 2;
 const ID_COPY: i32 = 3;
 const ID_UPDATE: i32 = 4;
+const ID_LANG: i32 = 5;
 const BS_AUTOCHECKBOX: u32 = 3;
 const BM_GETCHECK: u32 = 0x00F0;
 const BM_SETCHECK: u32 = 0x00F1;
@@ -345,10 +346,19 @@ struct Controls {
     copy: Hwnd,
     /// The toggle of the update notice (only when this installation updates itself).
     update: Hwnd,
+    /// The game language button (cycles the languages of the game's text).
+    lang: Hwnd,
 }
 
 static CONTROLS: OnceLock<Controls> = OnceLock::new();
 static UPDATE_ON: AtomicBool = AtomicBool::new(false);
+static LANG_INDEX: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// "Game language: English" for the button.
+fn lang_label() -> String {
+    let i = LANG_INDEX.load(Ordering::SeqCst).min(port::GAME_LANGUAGES.len() - 1);
+    format!("{}: {}", launcher::text(gui().lang, Key::GameLanguage), port::GAME_LANGUAGES[i].1)
+}
 
 /// The fonts, brushes and icon the window paints with (made once, when it is created).
 struct Look {
@@ -442,7 +452,10 @@ unsafe fn create_controls(hwnd: Hwnd) {
     let primary = child(hwnd, "BUTTON", "", WS_TABSTOP | BS_OWNERDRAW | BS_DEFPUSHBUTTON, ID_PRIMARY, 150, 232, 260, 46, normal);
     let update = child(hwnd, "BUTTON", launcher::text(gui().lang, Key::UpdateCheckbox), WS_TABSTOP | BS_OWNERDRAW, ID_UPDATE, 40, 324, 330, 18, normal);
     UPDATE_ON.store(update_info().is_some() && update::load_settings(&gui().cache).check, Ordering::SeqCst);
-    let _ = CONTROLS.set(Controls { body, detail, primary, secondary, copy, update });
+    let lang = child(hwnd, "BUTTON", "", WS_TABSTOP | BS_OWNERDRAW, ID_LANG, 380, 320, 140, 26, normal);
+    LANG_INDEX.store(port::config_language(&port::saves_dir(&options(PathBuf::new()))), Ordering::SeqCst);
+    set_text(lang, &lang_label());
+    let _ = CONTROLS.set(Controls { body, detail, primary, secondary, copy, update, lang });
 }
 
 fn set_text(h: Hwnd, s: &str) {
@@ -499,6 +512,7 @@ fn draw(screen: &Screen) {
         }
     }
     show_control(c.update, update_info().is_some() && matches!(screen, Screen::Pick | Screen::Ready(_)));
+    show_control(c.lang, matches!(screen, Screen::Pick | Screen::Ready(_)));
     show_control(c.copy, copy);
     if copy {
         set_text(c.copy, t(Key::CopyDetail));
@@ -635,6 +649,16 @@ fn options(rom: PathBuf) -> Options {
 }
 
 unsafe fn on_click(hwnd: Hwnd, id: i32) {
+    if id == ID_LANG {
+        if let Some(c) = CONTROLS.get() {
+            let next = (LANG_INDEX.load(Ordering::SeqCst) + 1) % port::GAME_LANGUAGES.len();
+            LANG_INDEX.store(next, Ordering::SeqCst);
+            port::set_config_language(&port::saves_dir(&options(PathBuf::new())), next);
+            set_text(c.lang, &lang_label());
+            InvalidateRect(c.lang, std::ptr::null(), 1);
+        }
+        return;
+    }
     if id == ID_UPDATE {
         if let (Some(c), Some(info)) = (CONTROLS.get(), update_info()) {
             let on = !UPDATE_ON.load(Ordering::SeqCst);
