@@ -4,7 +4,12 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Internet solo para buscar versiones nuevas (se puede apagar en el lanzador); la ROM llega por el selector de documentos. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Instalar la actualización descargada desde la app (UpdateInstaller): Android pide permitirlo la primera vez. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application android:label="Minish Cap" android:icon="@mipmap/ic_launcher" android:allowBackup="false" android:hasCode="true">
+        <receiver android:name=".UpdateReceiver" android:exported="false" />
         <activity
             android:name=".GameActivity"
             android:exported="false"

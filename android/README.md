@@ -23,6 +23,10 @@ Botones redondos con aro dorado, cruz con borde dorado y botones superiores en p
 
 Pantalla de inicio con los colores del juego: «Elegir ROM» abre el selector de archivos de Android, comprueba el CRC32 (el del perfil del juego), copia la ROM a la carpeta de la app y muestra «Jugar» / «Cambiar ROM». Una ROM que no es la esperada se rechaza con el CRC que tiene. Ya no hace falta `adb push`. Textos en español e inglés según el idioma del sistema.
 
+## Actualizaciones
+
+El lanzador busca la última release de GitHub (`gbaPort.updateUrl` en `gradle.properties`; vacía: la app no usa Internet) una vez al día si la casilla está activa, y hay un botón «Buscar actualizaciones». Si la release lleva un `.apk` y un `SHA256SUMS`, «Descargar e instalar» baja el APK, comprueba el hash y se lo da al instalador de Android (solo instala si la firma es la misma); si no, abre la página de la release. Para probarlo sin GitHub, en builds de depuración: `adb reverse tcp:8765 tcp:8765`, servir un JSON de release y `run-as <id> sh -c 'echo http://127.0.0.1:8765/latest > files/update_url'`.
+
 ## Falta
 
-Aviso de actualizaciones, licencias en la app, firmar una versión, sonido comprobado a oído, probar en un móvil (también de gama baja y en vertical), `NOTICE.txt`.
+Firmar una versión, sonido comprobado a oído, probar en un móvil (también de gama baja y en vertical), `NOTICE.txt`.

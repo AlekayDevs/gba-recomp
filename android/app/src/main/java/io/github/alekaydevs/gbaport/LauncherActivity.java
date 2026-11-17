@@ -12,7 +12,14 @@ import android.widget.ScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import android.app.AlertDialog;
+import android.os.Handler;
+import android.os.Looper;
+import android.widget.CheckBox;
+import android.widget.ProgressBar;
 import java.io.File;
+import java.io.IOException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -34,7 +41,8 @@ public class LauncherActivity extends Activity {
 
     private final boolean es = Locale.getDefault().getLanguage().equals("es");
     private TextView status;
-    private Pixel.Button play, pick, licences;
+    private Pixel.Button play, pick, licences, check;
+    private CheckBox auto;
 
     private String t(String en, String sp) { return es ? sp : en; }
 
@@ -104,6 +112,22 @@ public class LauncherActivity extends Activity {
         licences = button(false);
         licences.setLabel(t("Licences", "Licencias"));
         licences.setOnClickListener(v -> showLicences());
+        if (UpdateChecker.available(this)) {
+            auto = new CheckBox(this);
+            auto.setText(t("Check for updates on start (uses the Internet)", "Buscar actualizaciones al empezar (usa Internet)"));
+            auto.setTextColor(INK);
+            auto.setChecked(UpdateChecker.enabled(this));
+            auto.setOnCheckedChangeListener((b, on) -> UpdateChecker.setEnabled(this, on));
+            LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-2, -2);
+            ap.topMargin = 6 * u;
+            ap.gravity = Gravity.CENTER_HORIZONTAL;
+            root.addView(auto, ap);
+            check = button(false);
+            check.setLabel(t("Check for updates", "Buscar actualizaciones"));
+            check.setOnClickListener(v -> checkNow());
+            root.addView(check);
+        }
+
         root.addView(licences);
 
         ScrollView sv = new ScrollView(this);
@@ -112,6 +136,103 @@ public class LauncherActivity extends Activity {
         frame.addView(sv, new FrameLayout.LayoutParams(-1, -1));
         setContentView(frame);
         refresh(null);
+        if (UpdateChecker.enabled(this)) autoCheck();
+    }
+
+    /** Una consulta al día (si no, lo último que se supo); si hay versión nueva que no se omitió, pregunta. */
+    private void autoCheck() {
+        if (UpdateChecker.fresh(this)) {
+            offer(UpdateChecker.fromCache(this));
+            return;
+        }
+        Handler ui = new Handler(Looper.getMainLooper());
+        new Thread(() -> {
+            UpdateChecker.Result r = UpdateChecker.query(this);
+            ui.post(() -> offer(r));
+        }).start();
+    }
+
+    private void offer(UpdateChecker.Result r) {
+        if (isFinishing() || isDestroyed()) return;
+        if (r.ok && r.newer && !UpdateChecker.skipped(this, r.tag)) showUpdateDialog(r);
+    }
+
+    private String newVersionText(UpdateChecker.Result r) {
+        return String.format(t("There is a new version: %1$s (you have %2$s).", "Hay una versión nueva: %1$s (tienes %2$s)."), r.tag, UpdateChecker.installedVersion(this));
+    }
+
+    /** «Descargar e instalar» baja el APK de la release, comprueba su hash y lo instala; sin APK en la release abre su página. */
+    private void showUpdateDialog(UpdateChecker.Result r) {
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle(t("New version", "Versión nueva"))
+            .setMessage(newVersionText(r))
+            .setPositiveButton(r.canInstall() ? t("Download and install", "Descargar e instalar") : t("Open release page", "Abrir la página de la release"), (d, w) -> {
+                if (r.canInstall()) installUpdate(r);
+                else startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(r.url)));
+            })
+            .setNegativeButton(t("Not now", "Ahora no"), null)
+            .setNeutralButton(t("Skip this version", "Omitir esta versión"), (d, w) -> UpdateChecker.skip(this, r.tag))
+            .show();
+    }
+
+    /** Pide el permiso de instalar desde esta app si falta; si no, descarga con una barra de progreso y entrega el APK al sistema. */
+    private void installUpdate(UpdateChecker.Result r) {
+        if (!getPackageManager().canRequestPackageInstalls()) {
+            new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+                .setMessage(t("To install the update, Android needs you to allow this app to install apps. Tap Open settings, turn it on, then come back and try again.",
+                              "Para instalar la actualización, Android necesita que permitas a esta app instalar aplicaciones. Pulsa Abrir ajustes, actívalo, vuelve y inténtalo de nuevo."))
+                .setPositiveButton(t("Open settings", "Abrir ajustes"), (d, w) ->
+                    startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))))
+                .setNegativeButton(t("Not now", "Ahora no"), null)
+                .show();
+            return;
+        }
+        ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(100);
+        bar.setPadding(48, 32, 48, 0);
+        AtomicBoolean cancel = new AtomicBoolean(false);
+        AlertDialog dlg = new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle(t("Downloading the update...", "Descargando la actualización..."))
+            .setView(bar)
+            .setCancelable(false)
+            .setNegativeButton(t("Cancel", "Cancelar"), (d, w) -> cancel.set(true))
+            .show();
+        Handler ui = new Handler(Looper.getMainLooper());
+        new Thread(() -> {
+            String error = null;
+            try {
+                File apk = UpdateInstaller.download(this, r, p -> ui.post(() -> bar.setProgress(p)), cancel);
+                UpdateInstaller.install(this, apk);
+            } catch (UpdateInstaller.Failure f) {
+                error = f.text;
+            } catch (IOException e) {
+                error = t("The download failed. Check your connection and try again.", "La descarga falló. Revisa la conexión e inténtalo de nuevo.");
+            }
+            final String err = error;
+            ui.post(() -> {
+                dlg.dismiss();
+                if (err != null) android.widget.Toast.makeText(this, err, android.widget.Toast.LENGTH_LONG).show();
+            });
+        }).start();
+    }
+
+    /** El botón: consulta ahora y dice en pantalla qué ha pasado. */
+    private void checkNow() {
+        check.setEnabled(false);
+        status.setText(t("Checking for updates...", "Buscando actualizaciones..."));
+        Handler ui = new Handler(Looper.getMainLooper());
+        new Thread(() -> {
+            UpdateChecker.Result r = UpdateChecker.query(this);
+            ui.post(() -> {
+                check.setEnabled(true);
+                if (!r.ok) status.setText(t("Could not check. Check your connection and try again.", "No se pudo comprobar. Revisa la conexión e inténtalo de nuevo."));
+                else if (!r.newer) status.setText(String.format(t("You are up to date (version %1$s).", "Estás al día (versión %1$s)."), UpdateChecker.installedVersion(this)));
+                else {
+                    status.setText(newVersionText(r));
+                    showUpdateDialog(r);
+                }
+            });
+        }).start();
     }
 
     /** Los avisos de terceros (LGPL de libtcc y zlib de SDL2) con el texto de las licencias, tal como van en los assets. */
