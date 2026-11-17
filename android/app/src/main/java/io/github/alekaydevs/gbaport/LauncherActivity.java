@@ -39,14 +39,13 @@ public class LauncherActivity extends Activity {
     private static final int INK = 0xFFFFF8D8;
     private static final int REQ_ROM = 1;
 
-    private final boolean es = Locale.getDefault().getLanguage().equals("es");
     private TextView status;
     private Pixel.Button play, pick, licences, check;
     private CheckBox auto;
     /** La release nueva encontrada, si la hay: el botón pasa a «Actualizar». */
     private UpdateChecker.Result pending;
 
-    private String t(String en, String sp) { return es ? sp : en; }
+    private String t(String en, String sp) { return Locale.getDefault().getLanguage().equals("es") ? sp : en; }
 
     private File romFile() { return new File(getExternalFilesDir(null), "rom.gba"); }
 
@@ -69,6 +68,12 @@ public class LauncherActivity extends Activity {
         p.gravity = Gravity.CENTER_HORIZONTAL;
         b.setLayoutParams(p);
         return b;
+    }
+
+    @Override
+    protected void attachBaseContext(android.content.Context base) {
+        Lang.apply(base);
+        super.attachBaseContext(base);
     }
 
     @Override
@@ -149,6 +154,12 @@ public class LauncherActivity extends Activity {
         sv.setFillViewport(true);
         sv.addView(root, new ViewGroup.LayoutParams(-1, -1));
         frame.addView(sv, new FrameLayout.LayoutParams(-1, -1));
+        Pixel.LangButton lang = new Pixel.LangButton(this, Lang.get(this));
+        lang.setOnClickListener(v -> { Lang.toggle(this); recreate(); });
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        lp.topMargin = 8 * u;
+        lp.rightMargin = 8 * u;
+        frame.addView(lang, lp);
         setContentView(frame);
         refresh(null);
         if (UpdateChecker.enabled(this)) autoCheck();

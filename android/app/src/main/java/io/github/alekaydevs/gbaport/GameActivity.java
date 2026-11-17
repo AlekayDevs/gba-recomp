@@ -26,6 +26,12 @@ public class GameActivity extends SDLActivity {
     }
 
     @Override
+    protected void attachBaseContext(android.content.Context base) {
+        Lang.apply(base);
+        super.attachBaseContext(base);
+    }
+
+    @Override
     protected void onCreate(Bundle state) {
         copyAssets();
         super.onCreate(state);

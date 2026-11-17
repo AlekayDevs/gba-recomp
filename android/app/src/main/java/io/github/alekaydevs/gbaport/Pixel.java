@@ -217,4 +217,41 @@ final class Pixel {
             plate(c, 0, 0, getWidth(), getHeight(), Math.max(1, p / 2), 0xE00C2014, 0xE00C2014, false);
         }
     }
+
+    /** Botón del idioma: un globo de píxeles y el código del idioma actual (EN/ES). */
+    static final class LangButton extends View {
+        private final int p = pixelScale(getContext());
+        private final String code;
+        private boolean down;
+
+        LangButton(Context c, String code) {
+            super(c);
+            this.code = code.toUpperCase();
+            setClickable(true);
+            setContentDescription("Language");
+        }
+
+        @Override protected void onMeasure(int wm, int hm) {
+            setMeasuredDimension(38 * p, 16 * p);
+        }
+
+        @Override public boolean onTouchEvent(MotionEvent e) {
+            boolean was = down;
+            if (e.getAction() == MotionEvent.ACTION_DOWN) down = true;
+            else if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) down = false;
+            if (was != down) invalidate();
+            return super.onTouchEvent(e);
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            int w = getWidth(), h = getHeight(), off = down ? p : 0;
+            plate(c, 0, off, w, h, p, down ? PRESS : STONE, STONE_HI, down);
+            String[] globe = {"..ggggg..", ".g..g..g.", "g...g...g", "g...g...g", "ggggggggg", "g...g...g", "g...g...g", ".g..g..g.", "..ggggg.."};
+            float gx = 5 * p, gy = off + (h - 9 * p) / 2f;
+            for (int j = 0; j < 9; j++)
+                for (int i = 0; i < 9; i++)
+                    if (globe[j].charAt(i) == 'g') rect(c, gx + i * p, gy + j * p, gx + (i + 1) * p, gy + (j + 1) * p, GOLD_HI);
+            text(c, code, 17 * p, off + (h - 7 * p) / 2f, p, GOLD_HI, SHADOW);
+        }
+    }
 }
