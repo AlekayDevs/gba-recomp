@@ -166,6 +166,18 @@ static void bg_affine_set(Cpu *c) {
     }
 }
 
+/* How many frames pass between two VBlankIntrWait calls (the game's main loop): 1 is 60 fps; more is a slow or lagging loop.
+   Counted for run_headless (it prints the table at the end): a loop that takes two frames is a bug of the timing, not of the game. */
+static u32 wait_last, wait_hist[8];
+void bios_wait_report(void) {
+    u32 total = 0;
+    for (int i = 0; i < 8; i++) total += wait_hist[i];
+    if (!total) return;
+    printf("main loop (VBlankIntrWait): %u waits; frames between two: 0:%u 1:%u 2:%u 3:%u 4:%u 5:%u 6:%u 7+:%u
+", total,
+           wait_hist[0], wait_hist[1], wait_hist[2], wait_hist[3], wait_hist[4], wait_hist[5], wait_hist[6], wait_hist[7]);
+}
+
 static void intr_wait(Cpu *c, u32 discard, u32 mask) {
     io_set16(IO_IME, 1);
     if (discard) wr16(BIOS_IF, rd16(BIOS_IF) & ~mask);
@@ -196,7 +208,13 @@ void bios_swi(Cpu *c, u32 n) {
     }
     case 0x02: case 0x03: sys_halt(c); break; /* Halt, Stop */
     case 0x04: intr_wait(c, r[0], r[1]); break;
-    case 0x05: intr_wait(c, 1, 1); break; /* VBlankIntrWait */
+    case 0x05: { /* VBlankIntrWait */
+        u32 d = sys_frames - wait_last;
+        wait_hist[d > 7 ? 7 : d]++;
+        wait_last = sys_frames;
+        intr_wait(c, 1, 1);
+        break;
+    }
     case 0x06: { /* Div: r0 / r1 */
         s32 a = (s32)r[0], b = (s32)r[1];
         if (b == 0) { r[0] = a < 0 ? (u32)-1 : 1; r[1] = (u32)a; r[3] = 1; break; }

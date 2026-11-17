@@ -64,8 +64,10 @@ static void wav_close(void) {
     fclose(wav); wav = NULL;
 }
 
+void bios_wait_report(void);
 void sys_report(void) {
     wav_close();
+    bios_wait_report();
     printf("audio: %u frames of 32768 Hz, peak %u
 ", wav_frames, audio_peak);
     u32 pal = 0;
