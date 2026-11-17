@@ -84,6 +84,18 @@ Detalle en `..\minishcap-recomp\plan.md`. Resumen:
 - [ ] Mejoras de calidad de vida (apagadas por defecto, sin romper la dificultad), pantalla ancha, traducción propia al español del texto, menú del port con estilo propio.
 - [ ] Probar con el mando y con el móvil (Galaxy S25 Ultra por USB, como con alttp).
 
+## Pendientes de Android
+
+Estado (2026-11-17): prueba que funciona en una tablet (`android/`): lanzador con selector de ROM (CRC32), controles táctiles con la estética del juego, ~60 fps. El C del juego va precompilado en el APK, así que **no es repartible**.
+
+- [ ] **Generar y compilar en el dispositivo**: biblioteca del generador (Rust, `staticlib`) + TinyCC en el móvil, como `snes-recomp/android`; la ROM elegida produce el C, que se compila al primer arranque y se guarda en caché (por CRC y versión). Sin esto no hay APK que repartir.
+- [ ] **Menú del reproductor con el dedo**: hoy solo con teclado externo; el botón atrás no hace nada. Abrirlo con un botón o un gesto, y manejarlo táctil (idioma, vídeo, sonido, estados, Extras).
+- [ ] **Sonido**: comprobarlo a oído en el dispositivo (colchón de audio, latencia).
+- [ ] **Controles**: afinar tamaño y posición, ajustes (opacidad, tamaño, zurdos), vibración al pulsar, ocultarlos con mando conectado, y adaptarlos al juego (qué botones se usan más).
+- [ ] **Lanzador**: icono y nombre definitivos, aviso de actualizaciones (`update.rs`), licencias, varios juegos.
+- [ ] **Distribución**: firma de una versión, `applicationId`, ruta de `gen.c` fuera de `gradle.properties`, comprobar arm64 (endianness y tamaño de punteros), rendimiento y batería en gama baja.
+- [ ] **Otros**: ranuras de estado con miniatura, guardar al pasar a segundo plano, pausa al perder el foco, rotación y pantallas plegables.
+
 ## Orden propuesto
 
 1. Validar candidatos y punteros ARM; mapa de la ROM (cobertura). *(analizador)*
