@@ -99,11 +99,16 @@ static void dump_video(void) {
     printf("visible sprites %d\n", n);
 }
 
+static u32 rw_from, rw_steps, rw_done; /* --rewind-test FRAME:STEPS */
 static struct { u32 frame; int what; char path[260]; } states[8];
 static int n_states;
 
 static void on_frame(u32 f) {
     u32 k = 0;
+    if (rw_steps && !rt_state_req) {
+        if (f < rw_from && f % 3 == 0) rt_state_req = 3;
+        else if (f >= rw_from && rw_done < rw_steps) { rt_state_req = 4; rw_done++; }
+    }
     for (int i = 0; i < n_states; i++) if (states[i].frame == f) { snprintf(rt_state_path, sizeof rt_state_path, "%s", states[i].path); rt_state_req = states[i].what; }
     if (rt_state_msg) { printf("frame %u: %s
 ", f, rt_state_msg); rt_state_msg = NULL; }
@@ -148,6 +153,7 @@ int main(int argc, char **argv) {
     rt_game_start(argc, argv);
     sys_max_frames = 60;
     for (int i = 2; i < argc; i++) {
+        if (!strcmp(argv[i], "--rewind-test") && i + 1 < argc) { if (sscanf(argv[++i], "%u:%u", &rw_from, &rw_steps) != 2) return 2; rt_rewind_verify = 1; continue; }
         if ((!strcmp(argv[i], "--save-state") || !strcmp(argv[i], "--load-state")) && i + 1 < argc && n_states < 8) {
             states[n_states].what = argv[i][2] == 's' ? 1 : 2;
             if (sscanf(argv[++i], "%u:%259s", &states[n_states].frame, states[n_states].path) != 2) { fprintf(stderr, "bad --save-state/--load-state (FRAME:file)

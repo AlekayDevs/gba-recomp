@@ -10,7 +10,7 @@
  * Settings live in config.ini (in the saves folder), apply at once and are saved when the menu closes. */
 #include "play_ui.h"
 
-typedef struct { int lang; int fit; int smooth; int fullscreen; int volume; } Settings; /* lang: index into langs[] */
+typedef struct { int lang; int fit; int smooth; int fullscreen; int volume; int rewind; } Settings; /* lang: index into langs[] */
 static Settings cfg;
 /* The controls: for each button of the GBA (bit i of KEYINPUT: A B Select Start Right Left Up Down R L) a keyboard
  * scancode and a controller button, one of each. Kept in config.ini as key_<name> (scancode name) and pad_<name> (number). */
@@ -36,7 +36,7 @@ static int emblem_ok;
 static const struct { const char *code, *name; } langs[] = { {"", "English"}, {"es", "Espa\xC3\xB1ol"} };
 #define N_LANGS 2
 
-static void cfg_defaults(void) { cfg.lang = 0; cfg.fit = 0; cfg.smooth = 0; cfg.fullscreen = 0; cfg.volume = 100; }
+static void cfg_defaults(void) { cfg.lang = 0; cfg.fit = 0; cfg.smooth = 0; cfg.fullscreen = 0; cfg.volume = 100; cfg.rewind = 1; }
 
 static int lang_index(const char *code) {
     for (int i = 0; i < N_LANGS; i++) if (!strcmp(langs[i].code, code)) return i;
@@ -65,6 +65,7 @@ static void cfg_load(void) {
                 else if (atoi(v) >= 0 && atoi(v) < SDL_CONTROLLER_BUTTON_MAX) pb[i] = atoi(v);
             }
         }
+        else if (!strcmp(line, "rewind")) cfg.rewind = atoi(v) != 0;
         else if (!strcmp(line, "volume")) { cfg.volume = atoi(v); if (cfg.volume < 0) cfg.volume = 0; if (cfg.volume > 100) cfg.volume = 100; }
     }
     fclose(f);
@@ -73,8 +74,8 @@ static void cfg_load(void) {
 static void cfg_save(void) {
     FILE *f = cfg_path[0] ? fopen(cfg_path, "w") : NULL;
     if (!f) return;
-    fprintf(f, "# Options of the player. Edit by hand or from the menu (F1).\nlanguage=%s\nscaling=%s\nsmooth=%d\nfullscreen=%d\nvolume=%d\n",
-            langs[cfg.lang].code, cfg.fit ? "fit" : "integer", cfg.smooth, cfg.fullscreen, cfg.volume);
+    fprintf(f, "# Options of the player. Edit by hand or from the menu (F1).\nlanguage=%s\nscaling=%s\nsmooth=%d\nfullscreen=%d\nvolume=%d\nrewind=%d\n",
+            langs[cfg.lang].code, cfg.fit ? "fit" : "integer", cfg.smooth, cfg.fullscreen, cfg.volume, cfg.rewind);
     for (int i = 0; i < 10; i++) fprintf(f, "key_%s=%s\npad_%s=%d\n", gba_btn[i], SDL_GetScancodeName((SDL_Scancode)kb[i]), gba_btn[i], pb[i]);
     fclose(f);
 }
@@ -117,6 +118,7 @@ static void apply_video(void) {
 
 /* The language is applied by putting the ROM back as it was, patching it again and soft-resetting the game. */
 static void apply_language(void) {
+    rt_rewind_clear();
     memcpy(rt_rom, rom_orig, rt_rom_len);
     rt_game_init(game_dir, langs[cfg.lang].code);
     if (rt_reset_armed) longjmp(rt_reset_jb, 1);
@@ -140,7 +142,8 @@ static const char *tr(const char *s) {
         {"Softens the edges of the scaled picture.", "Suaviza los bordes de la imagen ampliada."},
         {"Switches between a window and the whole screen (F11).", "Alterna entre ventana y pantalla completa (F11)."},
         {"Volume of the game's sound.", "Volumen del sonido del juego."},
-        {"Controls", "Controles"}, {"States", "Estados"}, {"Slot", "Ranura"}, {"Save state", "Guardar estado"}, {"Load state", "Cargar estado"},
+        {"Controls", "Controles"}, {"States", "Estados"}, {"Slot", "Ranura"}, {"Save state", "Guardar estado"}, {"Load state", "Cargar estado"}, {"Rewind", "Rebobinar"},
+        {"Hold R (L3 on a controller) to go back in time, up to a minute. Keeping the history costs a little processor time.", "Mant\xC3\xA9n R (L3 en el mando) para volver atr\xC3\xA1s en el tiempo, hasta un minuto. Guardar el historial gasta un poco de procesador."},
         {"Which of the 9 slots Save and Load use (the keys 1 to 9 choose it too).", "Qu\xC3\xA9 ranura de las 9 usan Guardar y Cargar (las teclas 1 a 9 tambi\xC3\xA9n la eligen)."},
         {"Saves the game as it is (F5). It is written at the next step of the game\x27s main loop.", "Guarda el juego tal como est\xC3\xA1 (F5). Se escribe en el siguiente paso del bucle principal."},
         {"Goes back to the state saved in this slot (F8). Your saved game in the cartridge is not touched.", "Vuelve al estado guardado en esta ranura (F8). La partida del cartucho no se toca."}, {"Up", "Arriba"}, {"Down", "Abajo"}, {"Left", "Izquierda"}, {"Right", "Derecha"}, {"Restore controls", "Restaurar controles"},
@@ -190,9 +193,10 @@ static const Row rows_state[] = {
     {"Slot", "Which of the 9 slots Save and Load use (the keys 1 to 9 choose it too)."},
     {"Save state", "Saves the game as it is (F5). It is written at the next step of the game's main loop."},
     {"Load state", "Goes back to the state saved in this slot (F8). Your saved game in the cartridge is not touched."},
+    {"Rewind", "Hold R (L3 on a controller) to go back in time, up to a minute. Keeping the history costs a little processor time."},
 };
 static const Category cats[] = {
-    {"Game", rows_game, 4}, {"Video", rows_video, 3}, {"Audio", rows_audio, 1}, {"Controls", rows_ctl, 11}, {"States", rows_state, 3},
+    {"Game", rows_game, 4}, {"Video", rows_video, 3}, {"Audio", rows_audio, 1}, {"Controls", rows_ctl, 11}, {"States", rows_state, 4},
 };
 #define N_CATS 5
 static int menu_close_req; /* an action that closes the menu (saving or loading a state) */
@@ -218,6 +222,7 @@ static void row_value(int tab, int r, char *val, size_t n, int *kind, int *pct) 
     case 310: *kind = 0; break;
     case 400: snprintf(val, n, "%d", slot); break;
     case 401: case 402: *kind = 0; break;
+    case 403: snprintf(val, n, "%s", tr(cfg.rewind ? "On" : "Off")); break;
     default:
         if (tab == 3 && r < 10) {
             *kind = 3;
@@ -241,6 +246,7 @@ static void menu_change(int dir) { /* dir: -1, +1, or 0 for Enter */
     case 200: cfg.volume += 10 * d; if (cfg.volume < 0) cfg.volume = 0; if (cfg.volume > 100) cfg.volume = 100; break;
     case 310: if (dir == 0) bind_defaults(); break;
     case 400: slot = (slot - 1 + d + 9) % 9 + 1; break;
+    case 403: cfg.rewind = !cfg.rewind; if (!cfg.rewind) rt_rewind_clear(); break;
     case 401: case 402:
         if (dir == 0 && !rt_state_req) {
             snprintf(rt_state_path, sizeof rt_state_path, "%s.s%d", state_base, slot);

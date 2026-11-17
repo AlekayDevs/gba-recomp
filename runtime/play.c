@@ -1,6 +1,6 @@
 /* Plays the recompiled game in a window (SDL2): video, keyboard and game controller, frame pacing at 59.7275 Hz.
      play <rom.gba> [--scale N] [--fullscreen] [--nolimit]
-   Keys (rebindable in the menu): arrows, X = A, Z = B, A = L, S = R, Enter = Start, Backspace = Select; Tab (held) = fast forward; F11 = full screen; F1 or Esc = menu (language, video, audio, controls; Start+Back on a controller);
+   Keys (rebindable in the menu): arrows, X = A, Z = B, A = L, S = R, Enter = Start, Backspace = Select; Tab (held) = fast forward; F11 = full screen; R (held) or L3 = rewind; F1 or Esc = menu (language, video, audio, controls; Start+Back on a controller);
    F5 = save state, F8 = load state (slot 1..9 with the number keys; <rom>.sN; done at the next pass of the game's main loop);
    F12 = screenshot (shot-N.ppm); window close or Quit in the menu = quit. Controller: B/A = A/B, shoulders = L/R, Start, Back = Select, D-pad or left stick. */
 #include "gba_sys.h"
@@ -69,6 +69,7 @@ static void on_frame(u32 frame) {
         if (e.type == SDL_CONTROLLERDEVICEADDED && !pad) pad = SDL_GameControllerOpen(e.cdevice.which);
         if (e.type == SDL_CONTROLLERDEVICEREMOVED && pad && e.cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad))) { SDL_GameControllerClose(pad); pad = NULL; }
     }
+    if (rt_state_msg && !strcmp(rt_state_msg, "no more history")) rt_state_msg = NULL; /* holding R at the start of the history */
     if (rt_state_msg) {
         char t[96]; snprintf(t, sizeof t, "gba-recomp - slot %d: %s", slot, rt_state_msg);
         SDL_SetWindowTitle(win, t); printf("slot %d: %s
@@ -88,7 +89,25 @@ static void on_frame(u32 frame) {
         }
     }
     apu_n = 0;
+    /* rewind: a state every 3 frames while the game runs; holding R (or L3) goes back one step per frame */
+    int rewinding = cfg.rewind && (SDL_GetKeyboardState(NULL)[SDL_SCANCODE_R] || (pad && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_LEFTSTICK)));
+    if (cfg.rewind && !rt_state_req) {
+        if (rewinding) rt_state_req = 4;
+        else if (frame % 3 == 0) rt_state_req = 3;
+    }
+    if (rewinding) { rt_state_msg = NULL; if (audio) SDL_ClearQueuedAudio(audio); apu_n = 0; }
     sys_keys = key_state();
+    if (rewinding && rt_rewind_steps() > 0) {
+        /* a mark on the picture while going back (the picture of the game is not touched) */
+        static uint8_t rgb[240 * 160 * 3]; static uint32_t px[240 * 160];
+        Canvas cv = {rgb, 240, 160};
+        for (int i = 0; i < 240 * 160; i++) { uint32_t c = ((uint32_t *)ppu_frame)[i]; rgb[i * 3] = (uint8_t)(c >> 16); rgb[i * 3 + 1] = (uint8_t)(c >> 8); rgb[i * 3 + 2] = (uint8_t)c; }
+        cv_rect(&cv, 4, 4, 62, 13, 0x101028);
+        ui_arrow(&cv, 8, 7, -1, UI_WARN); ui_arrow(&cv, 12, 7, -1, UI_WARN);
+        text_draw(&cv, 20, 4, "REWIND", UI_TEXT, 0);
+        for (int i = 0; i < 240 * 160; i++) px[i] = (uint32_t)rgb[i * 3] << 16 | (uint32_t)rgb[i * 3 + 1] << 8 | rgb[i * 3 + 2];
+        SDL_UpdateTexture(tex, NULL, px, 240 * 4);
+    } else
     SDL_UpdateTexture(tex, NULL, ppu_frame, 240 * 4);
     SDL_RenderClear(ren);
     SDL_RenderCopy(ren, tex, NULL, NULL);

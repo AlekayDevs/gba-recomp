@@ -51,10 +51,14 @@ extern uint32_t ppu_frame[160][240];
 extern u32 sys_keys; /* pressed keys, active high (bit 0 = A) */
 
 /* state.c: save states, taken and loaded where the generated code calls rt_state_point (the profile's [resume] address) */
-typedef struct { FILE *f; int save, err; } StateIO;
+typedef struct { FILE *f; int save, err; uint8_t *buf; size_t pos, cap; } StateIO; /* buf != NULL: memory instead of a file (the rewind) */
 void st_blob(StateIO *s, void *p, size_t n);
 #define ST(s, x) st_blob((s), &(x), sizeof(x))
-extern volatile int rt_state_req;  /* set to 1 (save) or 2 (load) with rt_state_path; done at the next pass of the main loop */
+extern volatile int rt_state_req;  /* set to 1 (save) or 2 (load) with rt_state_path; done at the next pass of the main loop.
+                                      3 keeps the state in the rewind history, 4 goes back one step in it (see rt_rewind_*) */
+extern int rt_rewind_verify;       /* 1: after each step back, check that the machine serializes to the very bytes that were restored */
+void rt_rewind_clear(void);        /* forget the history (after loading a state, a soft reset, a change of language) */
+int rt_rewind_steps(void);         /* how many steps back are available */
 extern char rt_state_path[512];
 extern const char *rt_state_msg;
 void rt_state_point(Cpu *c);
