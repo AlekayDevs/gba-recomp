@@ -110,7 +110,8 @@ fn main() {
             }
         }
         "trace" | "map" | "gen" => {
-            let entry = args.get(2).filter(|s| !s.starts_with('-') && !s.contains(':')).map(|s| parse_addr(s)).or(rom.header().entry_target).unwrap_or(ROM_BASE);
+            // `gen` takes <out.c> there, not an entry (a Linux path like /tmp/g.c must not be read as an address)
+            let entry = args.get(2).filter(|s| cmd != "gen" && !s.starts_with('-') && !s.contains(':')).map(|s| parse_addr(s)).or(rom.header().entry_target).unwrap_or(ROM_BASE);
             let (d, note) = gba_recomp::cgen::discover(&rom, entry, &extra_roots, args.iter().any(|a| a == "--pointers"));
             if let Some(n) = note {
                 println!("{n}");

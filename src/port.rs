@@ -191,7 +191,35 @@ pub fn find_sdl2(root: &Path) -> Option<PathBuf> {
             }
         }
     }
-    c.into_iter().find(|p| ok(p))
+    if !cfg!(windows) {
+        c.push(PathBuf::from("/usr")); // libsdl2-dev: /usr/include/SDL2
+    }
+    c.into_iter().find(|p| ok(p) && (cfg!(windows) || p.join("include").join("SDL2").join("SDL.h").is_file() || p.join("include").join("SDL.h").is_file()))
+}
+
+/// Linux: the SDL2 shared library to link and load: `lib/libSDL2-2.0.so.0` of the package (`sdl`), or the system's.
+fn sdl_library(sdl: &Path) -> Option<PathBuf> {
+    let name = "libSDL2-2.0.so.0";
+    let mut c = vec![sdl.join("lib").join(name)];
+    for d in ["/usr/lib/x86_64-linux-gnu", "/usr/lib64", "/usr/lib", "/usr/lib/aarch64-linux-gnu", "/lib/x86_64-linux-gnu"] {
+        c.push(Path::new(d).join(name));
+    }
+    c.into_iter().find(|p| p.is_file())
+}
+
+#[cfg(unix)]
+fn symlink(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(from, to)
+}
+#[cfg(not(unix))]
+fn symlink(_from: &Path, _to: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+/// TinyCC's own files (`libtcc1.a`, `include/`): `lib/tcc/` next to the package's `tcc`, to pass as `-B`.
+fn tcc_dir(tcc: &Path) -> Option<PathBuf> {
+    let d = tcc.parent()?.join("lib").join("tcc");
+    d.join("libtcc1.a").is_file().then_some(d)
 }
 
 fn tail(s: &str) -> String {
@@ -253,10 +281,25 @@ pub fn build(o: &Options, ui: &dyn Ui) -> Result<(PathBuf, Game), Failure> {
                 return Err(format!("tcc -impdef failed:\n{}", tail(&String::from_utf8_lossy(&r.stderr))));
             }
         }
+        let mut rpath: Option<PathBuf> = None;
+        if !cfg!(windows) {
+            let lib = sdl_library(&sdl).ok_or("libSDL2-2.0.so.0 not found (install SDL2, e.g. libsdl2-2.0-0)")?;
+            symlink(&lib, &tmp.join("libSDL2.so")).map_err(|e| format!("libSDL2.so: {e}"))?;
+            rpath = lib.parent().map(|p| p.to_path_buf());
+        }
         ui.status("Compiling (a few seconds)...");
         let rt = o.root.join("runtime");
         let mut cmd = Command::new(&tcc);
         cmd.arg(format!("-I{}", rt.display())).arg(format!("-I{}", sdl.join("include").display())).arg(format!("-I{}", sdl.join("include").join("SDL2").display()));
+        if !cfg!(windows) {
+            cmd.arg("-DSDL_DISABLE_IMMINTRIN_H"); // TinyCC has no immintrin.h; the player does not use SIMD
+        }
+        if let Some(d) = tcc_dir(&tcc) {
+            cmd.arg(format!("-B{}", d.display()));
+        }
+        if let Some(r) = &rpath {
+            cmd.arg(format!("-Wl,-rpath={}", r.display()));
+        }
         cmd.arg(format!("-L{}", tmp.display())).arg("-o").arg(tmp.join(exe_name())).arg(&gen_c);
         for f in RUNTIME {
             cmd.arg(rt.join(f));
@@ -272,6 +315,9 @@ pub fn build(o: &Options, ui: &dyn Ui) -> Result<(PathBuf, Game), Failure> {
             }
         }
         cmd.arg("-lSDL2");
+        if !cfg!(windows) {
+            cmd.args(["-lm", "-ldl", "-lpthread"]);
+        }
         let r = cmd.output().map_err(|e| format!("{}: {e}", tcc.display()))?;
         if !r.status.success() {
             return Err(format!("compiling failed:\n{}", tail(&String::from_utf8_lossy(&r.stderr))));
