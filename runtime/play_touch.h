@@ -129,17 +129,28 @@ static int tcross(int dx, int dy, int a, int l, int e) {
     a -= e; l -= e;
     return (ax <= a && ay <= l) || (ay <= a && ax <= l);
 }
-/* Ezlo's cap: a green pointed hat bent to one side with a gold band and two eyes, 15 by 13 */
+/* Ezlo's cap: a green pointed hat bent to one side with a gold band and a dark outline so it stands out on the pad, 13 by 11 */
 static void that(TImg *im, int ox, int oy) {
-    static const char *m[13] = {
-        "......gg.......", ".....gGgg......", "....gGggg......", "...gGgggg......", "..gGggggg......", ".gGggggggg.....", ".gGgggggggg....",
-        "gGggggggggg....", "bbbbbbbbbbbb...", "bBBBBBBBBBBb...", ".bbbbbbbbbb....", "..ww..ww.......", "..wk..wk.......",
+    static const char *m[11] = {
+        "......gg.....", ".....gGgg....", "....gGgggg...", "...gGggggg...", "..gGgggggg...", ".gGggggggg...", ".gGgggggggg..",
+        "gGgggggggggg.", "bBBBBBBBBBBb.", "bbbbbbbbbbbb.", ".bbbbbbbbbb..",
     };
-    for (int y = 0; y < 13; y++) for (int x = 0; x < 15; x++) {
-        char c = m[y][x];
-        uint32_t col = c == 'g' ? 0x2E9E48u : c == 'G' ? 0x80E080u : c == 'b' ? TC_GOLD_LO : c == 'B' ? TC_GOLD_HI : c == 'w' ? 0xFFFFE0u : c == 'k' ? 0x142008u : 0;
-        if (c != '.') timg_put(im, ox + x, oy + y, col);
-    }
+    for (int pass = 0; pass < 2; pass++)
+        for (int y = -1; y <= 11; y++) for (int x = -1; x <= 13; x++) {
+            char c = (y >= 0 && y < 11 && x >= 0 && x < 13) ? m[y][x] : '.';
+            if (pass == 0) {
+                if (c != '.') continue;
+                int near = 0;
+                for (int d = 0; d < 4; d++) {
+                    int yy = y + (d == 0) - (d == 1), xx = x + (d == 2) - (d == 3);
+                    if (yy >= 0 && yy < 11 && xx >= 0 && xx < 13 && m[yy][xx] != '.') near = 1;
+                }
+                if (near) timg_put(im, ox + x, oy + y, TC_OUTLINE);
+            } else if (c != '.') {
+                uint32_t col = c == 'g' ? 0x3CC060u : c == 'G' ? 0xA0F0A0u : c == 'b' ? TC_GOLD_LO : TC_GOLD_HI;
+                timg_put(im, ox + x, oy + y, col);
+            }
+        }
 }
 /* the pad: a green cross in a gold frame, an arrow on each arm and the cap in the middle; dir 0 is the plate, 1..4 the lit arm (up down left right) */
 static TImg spr_dpad(int dir) {
@@ -165,7 +176,7 @@ static TImg spr_dpad(int dir) {
             for (int k = 0; k < 4; k++) for (int w = -k; w <= k; w++)
                 timg_put(&im, c + (i < 2 ? ax + w : ax + (i == 2 ? 3 - k : k - 3)), c + (i < 2 ? ay + (i == 0 ? 3 - k : k - 3) : ay + w), TC_GOLD);
         }
-        that(&im, c - 7, c - 7);
+        that(&im, c - 6, c - 5);
     }
     return im;
 }
@@ -279,7 +290,7 @@ static void touch_draw(u32 held) {
         if (i == TB_DPAD) down = (held & 0xF0) != 0;
         else if (i == TB_REWIND) down = touch_rewind;
         else if (b->mask) down = (held & b->mask) != 0;
-        int small = i >= TB_SAVE, a = down ? 255 : (small ? 130 : 205);
+        int small = i >= TB_SAVE, a = down ? 255 : (small ? 105 : 205);
         if (i == TB_DPAD) {
             int target = (int)(2 * b->w);
             tsprite(tspr[i][0], (int)b->cx, (int)b->cy, 65, 65, target, a);

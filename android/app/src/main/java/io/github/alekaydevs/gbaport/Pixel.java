@@ -29,8 +29,8 @@ final class Pixel {
         {0x11,0x11,0x0A,0x04,0x04,0x04,0x04}, {0x1F,0x01,0x02,0x04,0x08,0x10,0x1F},
     };
     private static final String[] HAT = {
-        "......gg.......", ".....gGgg......", "....gGggg......", "...gGgggg......", "..gGggggg......", ".gGggggggg.....", ".gGgggggggg....",
-        "gGggggggggg....", "bbbbbbbbbbbb...", "bBBBBBBBBBBb...", ".bbbbbbbbbb....", "..ww..ww.......", "..wk..wk.......",
+        "......gg.....", ".....gGgg....", "....gGgggg...", "...gGggggg...", "..gGgggggg...", ".gGggggggg...", ".gGgggggggg..",
+        "gGgggggggggg.", "bBBBBBBBBBBb.", "bbbbbbbbbbbb.", ".bbbbbbbbbb..",
     };
 
     private static final Paint P = new Paint();
@@ -75,14 +75,27 @@ final class Pixel {
         if (!pressed) rect(c, l + 3 * p, t + 3 * p, r - 3 * p, t + 4 * p, bodyHi);
     }
 
-    /** La gorra de Ezlo (15x13 píxeles) con la esquina superior izquierda en x, y. */
+    /** La gorra de Ezlo (13x11 píxeles, con contorno oscuro) con la esquina superior izquierda en x, y. */
     static void hat(Canvas c, float x, float y, int p) {
-        for (int j = 0; j < HAT.length; j++)
-            for (int i = 0; i < HAT[j].length(); i++) {
-                char h = HAT[j].charAt(i);
-                int col = h == 'g' ? 0xFF2E9E48 : h == 'G' ? 0xFF80E080 : h == 'b' ? GOLD_LO : h == 'B' ? GOLD_HI : h == 'w' ? 0xFFFFFFE0 : h == 'k' ? 0xFF142008 : 0;
-                if (h != '.') rect(c, x + i * p, y + j * p, x + (i + 1) * p, y + (j + 1) * p, col);
-            }
+        for (int pass = 0; pass < 2; pass++)
+            for (int j = -1; j <= HAT.length; j++)
+                for (int i = -1; i <= 13; i++) {
+                    boolean in = j >= 0 && j < HAT.length && i >= 0 && i < 13;
+                    char h = in ? HAT[j].charAt(i) : '.';
+                    if (pass == 0) {
+                        if (h != '.') continue;
+                        boolean near = false;
+                        int[][] d = {{0, 1}, {0, -1}, {1, 0}, {-1, 0}};
+                        for (int[] q : d) {
+                            int jj = j + q[0], ii = i + q[1];
+                            if (jj >= 0 && jj < HAT.length && ii >= 0 && ii < 13 && HAT[jj].charAt(ii) != '.') near = true;
+                        }
+                        if (near) rect(c, x + i * p, y + j * p, x + (i + 1) * p, y + (j + 1) * p, OUTLINE);
+                    } else if (h != '.') {
+                        int col = h == 'g' ? 0xFF3CC060 : h == 'G' ? 0xFFA0F0A0 : h == 'b' ? GOLD_LO : GOLD_HI;
+                        rect(c, x + i * p, y + j * p, x + (i + 1) * p, y + (j + 1) * p, col);
+                    }
+                }
     }
 
     static int pixelScale(Context ctx) {
@@ -133,14 +146,14 @@ final class Pixel {
         Title(Context c) { super(c); }
 
         @Override protected void onMeasure(int wm, int hm) {
-            setMeasuredDimension(MeasureSpec.getSize(wm), (13 + 4) * p + 7 * (p / 2 + 1) + 6 * p + 7 * p + 4 * p);
+            setMeasuredDimension(MeasureSpec.getSize(wm), (11 + 4) * p + 7 * (p / 2 + 1) + 6 * p + 7 * p + 4 * p);
         }
 
         @Override protected void onDraw(Canvas c) {
             int w = getWidth();
             float y = 2 * p;
-            hat(c, (w - 15 * p) / 2f, y, p);
-            y += 17 * p;
+            hat(c, (w - 13 * p) / 2f, y, p);
+            y += 15 * p;
             int p1 = Math.max(1, p / 2 + (p % 2));
             String a = "THE LEGEND OF ZELDA";
             text(c, a, (w - textWidth(a, p1)) / 2f, y, p1, GOLD_HI, SHADOW);
