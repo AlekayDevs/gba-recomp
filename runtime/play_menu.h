@@ -271,6 +271,11 @@ static const Category cats[] = {
 };
 #define N_CATS_MAX 6
 static int n_cats = 5; /* the sixth, Extras, only when the game has options */
+#ifdef __ANDROID__
+#define MROW 28 /* taller rows and tabs: they are tapped with a thumb */
+#else
+#define MROW 20
+#endif
 static int menu_tab;
 static void menu_init(void) { if (rt_opt_count() > 0) n_cats = 6; menu_tab %= n_cats; }
 static const char *opt_text(int i, int desc) {
@@ -297,14 +302,14 @@ static const char *pad_name(int b) {
 #else
 #define VROW(tab, r) (r)
 #endif
-static void row_value(int tab, int r, char *val, size_t n, int *kind, int *pct) {
+static void row_value0(int tab, int r, char *val, size_t n, int *kind, int *pct) {
     *kind = 1; *pct = 0; val[0] = 0;
     switch (tab * 100 + VROW(tab, r)) {
 #ifdef __ANDROID__
     case 300: *kind = 2; *pct = (cfg.t_opacity - 20) * 100 / 80; snprintf(val, n, "%d%%", cfg.t_opacity); break;
     case 301: snprintf(val, n, "%d%%", cfg.t_size); break;
     case 302: snprintf(val, n, "%s", tr(cfg.t_quick ? "On" : "Off")); break;
-    case 303: case 304: case 305: snprintf(val, n, "%s", tr((VROW(tab, r) == 303 ? cfg.t_haptic : VROW(tab, r) == 304 ? cfg.t_left : cfg.t_hide) ? "On" : "Off")); break;
+    case 303: case 304: case 305: snprintf(val, n, "%s", tr((VROW(tab, r) == 3 ? cfg.t_haptic : VROW(tab, r) == 4 ? cfg.t_left : cfg.t_hide) ? "On" : "Off")); break;
     case 306: *kind = 0; break;
 #endif
     case 0:  snprintf(val, n, "%s", langs[cfg.lang].name); break;
@@ -337,6 +342,11 @@ static void row_value(int tab, int r, char *val, size_t n, int *kind, int *pct) 
         }
         break;
     }
+}
+
+static void row_value(int tab, int r, char *val, size_t n, int *kind, int *pct) {
+    row_value0(tab, r, val, n, kind, pct);
+    if (*kind == 1 && (!strcmp(val, tr("On")) || !strcmp(val, tr("Off")))) *kind = 4; /* an On/Off row: drawn and tapped as a switch */
 }
 
 static void menu_change(int dir) { /* dir: -1, +1, or 0 for Enter */
@@ -443,17 +453,17 @@ static void drawer_draw(Canvas *c) {
     /* the sidebar */
     int sw = 84, top = 54;
     for (int t = 0; t < n_cats; t++) {
-        int y = top + t * 22, on = t == menu_tab;
+        int y = top + t * (MROW + 2), on = t == menu_tab;
         if (on) {
-            cv_rect(c, 6, y, sw - 4, 18, ui_mix(th_panel, th_gold, menu_focus ? 1 : 2, 6));
-            cv_rect(c, 6, y, 3, 18, th_gold);
+            cv_rect(c, 6, y, sw - 4, MROW - 2, ui_mix(th_panel, th_gold, menu_focus ? 1 : 2, 6));
+            cv_rect(c, 6, y, 3, MROW - 2, th_gold);
         }
-        text_draw(c, 16, y + 5, tr(cats[t].name), on ? th_gold : th_ink, 1);
+        text_draw(c, 16, y + MROW / 2 - 4, tr(cats[t].name), on ? th_gold : th_ink, 1);
     }
     cv_rect(c, sw + 6, top, 1, h - top - 62, ui_mix(th_gold, th_bg, 3, 4));
     /* the rows of the chosen category, scrolled so the chosen one shows */
     const Category *cat = &cats[menu_tab];
-    int px = sw + 16, pw = w - px - 12, rh = 20, vis = (h - top - 62) / rh;
+    int px = sw + 16, pw = w - px - 12, rh = MROW, vis = (h - top - 62) / rh;
     if (vis < 1) vis = 1;
     int *off = &menu_off[menu_tab], sel = menu_sel[menu_tab];
     int nrows = cat_rows(menu_tab);
@@ -466,17 +476,22 @@ static void drawer_draw(Canvas *c) {
         int y = top + (r - *off) * rh, on = menu_focus && r == sel;
         char val[48]; int kind, pct;
         row_value(menu_tab, r, val, sizeof val, &kind, &pct);
-        if (on) { cv_rect(c, px - 6, y, pw + 8, rh - 2, ui_mix(th_panel, th_gold, 1, 6)); ui_cursor(c, px - 4, y + 5); }
+        if (on) { cv_rect(c, px - 6, y, pw + 8, rh - 2, ui_mix(th_panel, th_gold, 1, 6)); ui_cursor(c, px - 4, y + rh / 2 - 5); }
         else if (r == sel) cv_rect(c, px - 6, y, 2, rh - 2, ui_mix(th_gold, th_bg, 1, 2));
-        text_draw(c, px + 8, y + 5, menu_tab == TAB_OPTS ? opt_text(r, 0) : tr(cat->rows[r].label), on ? th_ink : dim, 1);
+        text_draw(c, px + 8, y + rh / 2 - 4, menu_tab == TAB_OPTS ? opt_text(r, 0) : tr(cat->rows[r].label), on ? th_ink : dim, 1);
         if (kind == 2) {
-            ui_slider(c, px + pw - 8 - text_w(val) - 52, y + 6, 46, pct);
-            text_right(c, px + pw - 2, y + 5, val, on ? th_gold : th_ink);
+            ui_slider(c, px + pw - 8 - text_w(val) - 52, y + rh / 2 - 3, 46, pct);
+            text_right(c, px + pw - 2, y + rh / 2 - 4, val, on ? th_gold : th_ink);
         } else if (kind == 3) {
-            text_right(c, px + pw - 4, y + 5, val, menu_capture == r ? th_gold : on ? th_gold : th_ink);
+            text_right(c, px + pw - 4, y + rh / 2 - 4, val, menu_capture == r ? th_gold : on ? th_gold : th_ink);
         } else if (kind == 1) {
-            text_right(c, px + pw - 12, y + 5, val, on ? th_gold : th_ink);
-            if (on) { ui_arrow(c, px + pw - 12 - text_w(val) - 8, y + 6, -1, th_gold); ui_arrow(c, px + pw - 9, y + 6, 1, th_gold); }
+            text_right(c, px + pw - 12, y + rh / 2 - 4, val, on ? th_gold : th_ink);
+            if (on) { ui_arrow(c, px + pw - 12 - text_w(val) - 8, y + rh / 2 - 3, -1, th_gold); ui_arrow(c, px + pw - 9, y + rh / 2 - 3, 1, th_gold); }
+        } else if (kind == 4) { /* a switch */
+            int onv = !strcmp(val, tr("On")), sx = px + pw - 30, sy = y + rh / 2 - 6;
+            cv_rect(c, sx, sy, 26, 12, onv ? th_gold : dim);
+            cv_rect(c, sx + 1, sy + 1, 24, 10, onv ? ui_mix(th_gold, th_bg, 1, 3) : th_bg);
+            cv_rect(c, onv ? sx + 15 : sx + 3, sy + 3, 8, 6, onv ? th_ink : dim);
         }
     }
     if (nrows > vis) { /* there are more rows than fit */
@@ -592,11 +607,11 @@ static int menu_touch(float fx, float fy) {
     menu_dirty = 1;
     if (x >= dw || (x >= dw - 40 && y < 40)) return 1;
     if (x < sw + 4) {
-        int t = (y - top) / 22;
+        int t = (y - top) / (MROW + 2);
         if (y >= top && t >= 0 && t < n_cats) { menu_tab = t; menu_focus = 0; menu_free_scroll = 0; }
         return 0;
     }
-    int rh = 20, vis = (ch - top - 62) / rh, px = sw + 16, pw = dw - px - 12;
+    int rh = MROW, vis = (ch - top - 62) / rh, px = sw + 16, pw = dw - px - 12;
     if (vis < 1) vis = 1;
     int r = menu_off[menu_tab] + (y - top) / rh;
     if (y < top || r < 0 || r >= cat_rows(menu_tab) || (y - top) / rh >= vis) return 0;
@@ -604,7 +619,11 @@ static int menu_touch(float fx, float fy) {
     menu_focus = 1; menu_free_scroll = 0;
     char val[48]; int kind, pct;
     row_value(menu_tab, r, val, sizeof val, &kind, &pct);
-    if (kind == 1 || kind == 2) menu_change(x < px + pw / 2 + 20 ? -1 : 1);
+    if (kind == 4) menu_change(1); /* the whole row is the switch */
+    else if (kind == 2) { /* the bar: a tap left of its end lowers the value, right of it raises it */
+        int sx = px + pw - 8 - 30 - 52, ends = sx + 44 * pct / 100;
+        menu_change(x < ends ? -1 : 1);
+    } else if (kind == 1) menu_change(x < px + pw - 40 && x > px + pw / 2 ? -1 : 1); /* a choice: tapping cycles forward; near its left arrow goes back */
     else menu_change(0);
     return 0;
 }
@@ -616,7 +635,7 @@ static void menu_drag(float fx, float fdy) {
     SDL_GetRendererOutputSize(ren, &ww, &wh);
     double kk = (double)ww / 480 < (double)wh / 270 ? (double)ww / 480 : (double)wh / 270;
     int k = (int)(kk + 0.5); if (k < 1) k = 1;
-    int top = 54, rh = 20, vis = (wh / k - top - 62) / rh, nrows = cat_rows(menu_tab);
+    int top = 54, rh = MROW, vis = (wh / k - top - 62) / rh, nrows = cat_rows(menu_tab);
     if (fx * ww / k < 90 || nrows <= vis) return;
     acc -= fdy * wh / k;
     int step = (int)(acc / rh);
