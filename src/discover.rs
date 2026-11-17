@@ -129,6 +129,8 @@ fn walk(rom: &Rom, d: &mut Discovery, base: Option<&Discovery>, mut work: VecDeq
         // register -> (constant, instructions ago) from the literals loaded just before
         let mut lits: Vec<(u32, u32, u32)> = Vec::new();
         let mut prev = String::new();
+        // ARM: `MOV R12, LR` seen in this run, so a later `BX R12` is the return of the function (the usual GCC/ARM idiom)
+        let mut r12_is_lr = false;
         // the last Thumb halfwords, to recognise the `switch` sequence
         let mut hist: Vec<u16> = Vec::new();
         loop {
@@ -168,6 +170,14 @@ fn walk(rom: &Rom, d: &mut Discovery, base: Option<&Discovery>, mut work: VecDeq
                 (i.size, i.flow, lit, i.text)
             };
             d.code.insert(pc, (thumb, size));
+            let is_bx_r12 = !thumb && text == "bx r12";
+            if !thumb && !is_bx_r12 {
+                if text == "mov r12, lr" {
+                    r12_is_lr = true;
+                } else if writes(&text, 12) {
+                    r12_is_lr = false;
+                }
+            }
             for l in lits.iter_mut() {
                 l.2 += 1;
             }
@@ -215,7 +225,7 @@ fn walk(rom: &Rom, d: &mut Discovery, base: Option<&Discovery>, mut work: VecDeq
                     };
                     let resolved = rm.and_then(|rm| lits.iter().find(|l| l.0 == rm).map(|l| l.1));
                     // `POP {Rm}` then `BX Rm` is a return
-                    let popped = rm.is_some_and(|rm| prev.starts_with("pop") && prev.contains(&arm::reg(rm)));
+                    let popped = rm.is_some_and(|rm| prev.starts_with("pop") && prev.contains(&arm::reg(rm))) || (is_bx_r12 && r12_is_lr);
                     match resolved {
                         Some(t) => {
                             d.resolved.insert(pc, t);
