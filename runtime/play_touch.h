@@ -28,10 +28,19 @@ static void touch_layout(void) {
     b[TB_R].cx = tw - 1.4f * tu; b[TB_R].cy = 0.55f * tu; b[TB_R].w = 2.2f * tu; b[TB_R].h = 0.9f * tu;
     b[TB_SELECT].cx = tw / 2.0f - 1.1f * tu; b[TB_SELECT].cy = th - 0.45f * tu; b[TB_SELECT].w = 1.8f * tu; b[TB_SELECT].h = 0.7f * tu;
     b[TB_START].cx = tw / 2.0f + 1.1f * tu; b[TB_START].cy = th - 0.45f * tu; b[TB_START].w = 1.8f * tu; b[TB_START].h = 0.7f * tu;
-    b[TB_SAVE].cx = tw / 2.0f - 1.9f * tu; b[TB_SAVE].cy = 0.4f * tu; b[TB_SAVE].w = 1.5f * tu; b[TB_SAVE].h = 0.6f * tu;
-    b[TB_LOAD].cx = tw / 2.0f - 0.2f * tu; b[TB_LOAD].cy = 0.4f * tu; b[TB_LOAD].w = 1.5f * tu; b[TB_LOAD].h = 0.6f * tu;
-    b[TB_MENU].cx = tw / 2.0f - 3.6f * tu; b[TB_MENU].cy = 0.4f * tu; b[TB_MENU].w = 1.5f * tu; b[TB_MENU].h = 0.6f * tu;
-    b[TB_REWIND].cx = tw / 2.0f + 1.8f * tu; b[TB_REWIND].cy = 0.4f * tu; b[TB_REWIND].w = 2.0f * tu; b[TB_REWIND].h = 0.6f * tu;
+    { /* MENU, SAVE, LOAD and REWIND in a row between L and R; when the screen is narrow (portrait) the row goes under them */
+        static const int order[4] = {TB_MENU, TB_SAVE, TB_LOAD, TB_REWIND};
+        static const float wd[4] = {1.5f, 1.5f, 1.5f, 2.0f};
+        float gap = 0.4f * tu, total = 3 * gap, x;
+        for (int k = 0; k < 4; k++) total += wd[k] * tu;
+        int wide = tw >= 11.5f * tu;
+        x = tw / 2.0f - total / 2;
+        for (int k = 0; k < 4; k++) {
+            TouchBtn *q = &b[order[k]];
+            q->w = wd[k] * tu; q->h = 0.6f * tu; q->cx = x + q->w / 2; q->cy = (wide ? 0.4f : 1.55f) * tu;
+            x += q->w + gap;
+        }
+    }
 }
 
 /* ---- pixel art: every control is a small sprite (the size of the console's own pixels) drawn once into a texture and scaled up by a

@@ -4,7 +4,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
     <uses-permission android:name="android.permission.VIBRATE" />
-    <application android:label="Minish Cap (prueba)" android:allowBackup="false" android:hasCode="true">
+    <application android:label="Minish Cap" android:icon="@mipmap/ic_launcher" android:allowBackup="false" android:hasCode="true">
         <activity
             android:name=".GameActivity"
             android:exported="false"
