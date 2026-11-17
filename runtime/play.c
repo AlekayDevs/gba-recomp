@@ -57,6 +57,9 @@ static void on_frame(u32 frame) {
     while (SDL_PollEvent(&e)) {
         TOUCH_EVENT(&e);
         if (e.type == SDL_QUIT) exit(0);
+#ifdef __ANDROID__
+        if ((e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_AC_BACK) || touch_menu_req) { touch_menu_req = 0; if (menu_run()) exit(0); memset(tfinger, 0, sizeof tfinger); }
+#endif
         if (e.type == SDL_KEYDOWN && (
 #ifndef __ANDROID__
             e.key.keysym.sym == SDLK_ESCAPE ||

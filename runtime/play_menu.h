@@ -509,6 +509,36 @@ static void menu_key(SDL_Keycode k) {
     }
 }
 
+/* A tap on the menu (touch screens): fx, fy in window pixels. A tap on the sidebar picks a category, on a row selects it and acts
+   (the left half of a choice or a slider steps down, the right half up), outside the drawer closes. Returns 1 to close the menu. */
+static int menu_touch(float fx, float fy) {
+    int ww, wh;
+    SDL_GetRendererOutputSize(ren, &ww, &wh);
+    double kk = (double)ww / 480 < (double)wh / 270 ? (double)ww / 480 : (double)wh / 270;
+    int k = (int)(kk + 0.5);
+    if (k < 1) k = 1;
+    int cw = ww / k, ch = wh / k, dw = cw < 290 ? cw : 290;
+    int x = (int)(fx / k), y = (int)(fy / k), sw = 84, top = 54;
+    menu_dirty = 1;
+    if (x >= dw) return 1;
+    if (x < sw + 4) {
+        int t = (y - top) / 22;
+        if (y >= top && t >= 0 && t < n_cats) { menu_tab = t; menu_focus = 0; }
+        return 0;
+    }
+    int rh = 20, vis = (ch - top - 62) / rh, px = sw + 16, pw = dw - px - 12;
+    if (vis < 1) vis = 1;
+    int r = menu_off[menu_tab] + (y - top) / rh;
+    if (y < top || r < 0 || r >= cat_rows(menu_tab) || (y - top) / rh >= vis) return 0;
+    menu_sel[menu_tab] = r;
+    menu_focus = 1;
+    char val[48]; int kind, pct;
+    row_value(menu_tab, r, val, sizeof val, &kind, &pct);
+    if (kind == 1 || kind == 2) menu_change(x < px + pw / 2 + 20 ? -1 : 1);
+    else menu_change(0);
+    return 0;
+}
+
 /* Runs the menu until it closes (Esc in the sidebar, F1, Start on a controller). Returns 1 when the user chose Quit. */
 static int menu_run(void) {
     SDL_Texture *mt = NULL; int mw = 0, mh = 0;
@@ -527,9 +557,10 @@ static int menu_run(void) {
                     else if (e.key.keysym.scancode != SDL_SCANCODE_F1 && e.key.keysym.scancode != SDL_SCANCODE_F11) bind_set(menu_capture, 0, e.key.keysym.scancode);
                 } else if (e.type == SDL_CONTROLLERBUTTONDOWN) bind_set(menu_capture, 1, e.cbutton.button);
             }
+            else if (e.type == SDL_FINGERDOWN) { int ww, wh; SDL_GetRendererOutputSize(ren, &ww, &wh); if (menu_touch(e.tfinger.x * ww, e.tfinger.y * wh)) open = 0; }
             else if (e.type == SDL_KEYDOWN) {
                 SDL_Keycode k = e.key.keysym.sym;
-                if (k == SDLK_F1) open = 0;
+                if (k == SDLK_F1 || k == SDLK_AC_BACK) open = 0;
                 else if (k == SDLK_ESCAPE) { if (menu_focus) { menu_focus = 0; menu_dirty = 1; } else open = 0; }
                 else if (k == SDLK_F11) { cfg.fullscreen = !cfg.fullscreen; apply_video(); SDL_RenderSetLogicalSize(ren, 0, 0); menu_dirty = 1; }
                 else menu_key(k);

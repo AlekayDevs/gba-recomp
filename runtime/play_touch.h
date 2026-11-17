@@ -4,13 +4,14 @@
    The layout follows the size of the window (u = a sixth of the shorter side); fingers are tracked by id, so several buttons work at once. */
 
 typedef struct { const char *label; int shape; /* 0 circle, 1 rectangle, 2 d-pad */ float cx, cy, w, h; u32 mask; SDL_Texture *tex; int lw, lh; } TouchBtn;
-enum { TB_DPAD, TB_A, TB_B, TB_L, TB_R, TB_START, TB_SELECT, TB_SAVE, TB_LOAD, TB_REWIND, TB_N };
+enum { TB_DPAD, TB_A, TB_B, TB_L, TB_R, TB_START, TB_SELECT, TB_SAVE, TB_LOAD, TB_REWIND, TB_MENU, TB_N };
 static TouchBtn tbtn[TB_N] = {
     {"", 2, 0, 0, 0, 0, 0, NULL, 0, 0},       {"A", 0, 0, 0, 0, 0, 1u << 0, NULL, 0, 0}, {"B", 0, 0, 0, 0, 0, 1u << 1, NULL, 0, 0},
     {"L", 1, 0, 0, 0, 0, 1u << 9, NULL, 0, 0}, {"R", 1, 0, 0, 0, 0, 1u << 8, NULL, 0, 0}, {"START", 1, 0, 0, 0, 0, 1u << 3, NULL, 0, 0},
     {"SELECT", 1, 0, 0, 0, 0, 1u << 2, NULL, 0, 0}, {"SAVE", 1, 0, 0, 0, 0, 0, NULL, 0, 0}, {"LOAD", 1, 0, 0, 0, 0, 0, NULL, 0, 0},
-    {"REWIND", 1, 0, 0, 0, 0, 0, NULL, 0, 0},
+    {"REWIND", 1, 0, 0, 0, 0, 0, NULL, 0, 0}, {"MENU", 1, 0, 0, 0, 0, 0, NULL, 0, 0},
 };
+static int touch_menu_req; /* the MENU button was tapped: play.c opens the menu */
 static struct { SDL_FingerID id; float x, y; int on; } tfinger[10];
 static int touch_rewind, touch_seen; /* touch_seen: the screen has been touched at least once (the buttons fade when a controller is used) */
 static int tw, th;
@@ -29,6 +30,7 @@ static void touch_layout(void) {
     b[TB_START].cx = tw / 2.0f + 1.1f * tu; b[TB_START].cy = th - 0.45f * tu; b[TB_START].w = 1.8f * tu; b[TB_START].h = 0.7f * tu;
     b[TB_SAVE].cx = tw / 2.0f - 1.9f * tu; b[TB_SAVE].cy = 0.4f * tu; b[TB_SAVE].w = 1.5f * tu; b[TB_SAVE].h = 0.6f * tu;
     b[TB_LOAD].cx = tw / 2.0f - 0.2f * tu; b[TB_LOAD].cy = 0.4f * tu; b[TB_LOAD].w = 1.5f * tu; b[TB_LOAD].h = 0.6f * tu;
+    b[TB_MENU].cx = tw / 2.0f - 3.6f * tu; b[TB_MENU].cy = 0.4f * tu; b[TB_MENU].w = 1.5f * tu; b[TB_MENU].h = 0.6f * tu;
     b[TB_REWIND].cx = tw / 2.0f + 1.8f * tu; b[TB_REWIND].cy = 0.4f * tu; b[TB_REWIND].w = 2.0f * tu; b[TB_REWIND].h = 0.6f * tu;
 }
 
@@ -103,6 +105,7 @@ static void touch_event(const SDL_Event *e) {
     if (e->type == SDL_FINGERDOWN) {
         float x = e->tfinger.x * tw, y = e->tfinger.y * th;
         touch_latch |= touch_bits(x, y, NULL);
+        if (touch_hit(&tbtn[TB_MENU], x, y)) touch_menu_req = 1;
         if ((touch_hit(&tbtn[TB_SAVE], x, y) || touch_hit(&tbtn[TB_LOAD], x, y)) && !rt_state_req) {
             snprintf(rt_state_path, sizeof rt_state_path, "%s.s%d", state_base, slot);
             rt_state_req = touch_hit(&tbtn[TB_SAVE], x, y) ? 1 : 2;
