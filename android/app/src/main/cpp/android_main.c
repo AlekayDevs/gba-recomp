@@ -127,10 +127,10 @@ int SDL_main(int argc, char **argv) {
     LOG("preparado: generar %.0f ms, compilar y enlazar %.0f ms", t1 - t0, t2 - t1);
     progress(NULL);
 
-    /* el idioma lo elige el jugador en el lanzador (files/lang.txt): "es" o "en" (en el juego, "" es el inglés) */
+    /* el idioma lo elige el jugador en el lanzador (files/lang.txt): "es" o "en" (el runtime toma cualquier código que no conozca como inglés) */
     snprintf(path, sizeof path, "%s/lang.txt", files ? files : ".");
     char *lang = read_file(path, NULL);
-    const char *game_lang = lang && !strncmp(lang, "es", 2) ? "es" : "";
+    const char *game_lang = lang && !strncmp(lang, "es", 2) ? "es" : "en";
     char *av[] = {"play", rom_path, "--saves", dir, "--brand", "The Minish Cap", "--theme", "0F2A22,1F4A38,E8C547,F3E9C4", "--language", (char *)game_lang, NULL};
     return gba_play_main(10, av);
 }
