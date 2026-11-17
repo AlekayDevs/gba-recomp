@@ -13,6 +13,8 @@ static TouchBtn tbtn[TB_N] = {
 };
 static int touch_menu_req; /* the MENU button was tapped: play.c opens the menu */
 static struct { SDL_FingerID id; float x, y; int on; } tfinger[10];
+static Uint32 touch_last_ms; /* when the screen was last touched (the buttons hide while a controller is in use) */
+void gba_haptic(void); /* android_main.c: a short vibration */
 static int touch_rewind, touch_seen; /* touch_seen: the screen has been touched at least once (the buttons fade when a controller is used) */
 static int tw, th;
 static float tu;
@@ -21,9 +23,10 @@ static void touch_layout(void) {
     SDL_GetRendererOutputSize(ren, &tw, &th);
     tu = (tw < th ? tw : th) / 8.5f * cfg.t_size / 100.0f;
     TouchBtn *b = tbtn;
-    b[TB_DPAD].cx = 2.05f * tu; b[TB_DPAD].cy = th - 2.0f * tu; b[TB_DPAD].w = b[TB_DPAD].h = 1.55f * tu; /* half-size of the pad */
-    b[TB_A].cx = tw - 1.3f * tu; b[TB_A].cy = th - 2.7f * tu; b[TB_A].w = b[TB_A].h = 0.85f * tu; /* radius */
-    b[TB_B].cx = tw - 2.9f * tu; b[TB_B].cy = th - 1.4f * tu; b[TB_B].w = b[TB_B].h = 0.85f * tu;
+    int L = cfg.t_left; /* left-handed: the pad on the right, A and B on the left */
+    b[TB_DPAD].cx = (L ? tw - 2.05f * tu : 2.05f * tu); b[TB_DPAD].cy = th - 2.0f * tu; b[TB_DPAD].w = b[TB_DPAD].h = 1.55f * tu; /* half-size of the pad */
+    b[TB_A].cx = L ? 1.3f * tu : tw - 1.3f * tu; b[TB_A].cy = th - 2.7f * tu; b[TB_A].w = b[TB_A].h = 0.85f * tu; /* radius */
+    b[TB_B].cx = L ? 2.9f * tu : tw - 2.9f * tu; b[TB_B].cy = th - 1.4f * tu; b[TB_B].w = b[TB_B].h = 0.85f * tu;
     b[TB_L].cx = 1.4f * tu; b[TB_L].cy = 0.55f * tu; b[TB_L].w = 2.2f * tu; b[TB_L].h = 0.9f * tu;
     b[TB_R].cx = tw - 1.4f * tu; b[TB_R].cy = 0.55f * tu; b[TB_R].w = 2.2f * tu; b[TB_R].h = 0.9f * tu;
     b[TB_SELECT].cx = tw / 2.0f - 1.1f * tu; b[TB_SELECT].cy = th - 0.45f * tu; b[TB_SELECT].w = 1.8f * tu; b[TB_SELECT].h = 0.7f * tu;
@@ -262,6 +265,7 @@ static u32 touch_mask(void) {
 static void touch_event(const SDL_Event *e) {
     if (e->type != SDL_FINGERDOWN && e->type != SDL_FINGERMOTION && e->type != SDL_FINGERUP) return;
     touch_seen = 1;
+    touch_last_ms = SDL_GetTicks();
     int slot_i = -1, free_i = -1;
     for (int f = 0; f < 10; f++) {
         if (tfinger[f].on && tfinger[f].id == e->tfinger.fingerId) slot_i = f;
@@ -272,7 +276,9 @@ static void touch_event(const SDL_Event *e) {
     if (slot_i < 0) return;
     if (e->type == SDL_FINGERDOWN) {
         float x = e->tfinger.x * tw, y = e->tfinger.y * th;
-        touch_latch |= touch_bits(x, y, NULL);
+        u32 hit = touch_bits(x, y, NULL);
+        touch_latch |= hit;
+        if (cfg.t_haptic && (hit || touch_hit(&tbtn[TB_MENU], x, y) || touch_hit(&tbtn[TB_SAVE], x, y) || touch_hit(&tbtn[TB_LOAD], x, y) || touch_hit(&tbtn[TB_REWIND], x, y))) gba_haptic();
         if (touch_hit(&tbtn[TB_MENU], x, y)) touch_menu_req = 1;
         if ((touch_hit(&tbtn[TB_SAVE], x, y) || touch_hit(&tbtn[TB_LOAD], x, y)) && !rt_state_req) {
             snprintf(rt_state_path, sizeof rt_state_path, "%s.s%d", state_base, slot);
@@ -294,6 +300,7 @@ static void tsprite(SDL_Texture *t, int cx, int cy, int w0, int h0, int target, 
 
 static void touch_draw(u32 held) {
     touch_layout();
+    if (cfg.t_hide && pad && SDL_GetTicks() - touch_last_ms > 4000) return; /* a controller is in use: no buttons on the screen */
     SDL_RenderSetLogicalSize(ren, 0, 0);
     for (int i = 0; i < TB_N; i++) {
         TouchBtn *b = &tbtn[i];

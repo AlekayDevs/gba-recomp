@@ -57,6 +57,19 @@ static void progress(const char *text) {
     (*env)->DeleteLocalRef(env, act);
 }
 
+/* A short vibration (GameActivity.haptic), for the touch buttons. */
+void gba_haptic(void) {
+    JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
+    jobject act = (jobject)SDL_AndroidGetActivity();
+    if (!env || !act) return;
+    jclass cls = (*env)->GetObjectClass(env, act);
+    jmethodID m = (*env)->GetMethodID(env, cls, "haptic", "()V");
+    if (m) (*env)->CallVoidMethod(env, act, m);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    (*env)->DeleteLocalRef(env, cls);
+    (*env)->DeleteLocalRef(env, act);
+}
+
 static void fail(const char *msg) {
     progress(NULL);
     LOG("ERROR: %s", msg);

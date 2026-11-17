@@ -60,6 +60,12 @@ public class GameActivity extends SDLActivity {
         }
     }
 
+    /** Una vibración corta al pulsar un botón de la pantalla (la llama el runtime con JNI). */
+    public void haptic() {
+        android.os.Vibrator v = (android.os.Vibrator) getSystemService(VIBRATOR_SERVICE);
+        if (v != null && v.hasVibrator()) v.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_TICK));
+    }
+
     /** Llamado desde android_main.c: "gen" y "compile" son las fases, null lo quita. */
     public void setProgress(final String phase) {
         runOnUiThread(() -> {
