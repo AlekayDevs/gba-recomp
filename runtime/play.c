@@ -1,6 +1,6 @@
 /* Plays the recompiled game in a window (SDL2): video, keyboard and game controller, frame pacing at 59.7275 Hz.
      play <rom.gba> [--scale N] [--fullscreen] [--nolimit]
-   Keys: arrows, X = A, Z = B, A = L, S = R, Enter = Start, Backspace = Select; Tab (held) = fast forward; F11 = full screen; F1 or Esc = menu (language, video, audio; Start+Back on a controller);
+   Keys (rebindable in the menu): arrows, X = A, Z = B, A = L, S = R, Enter = Start, Backspace = Select; Tab (held) = fast forward; F11 = full screen; F1 or Esc = menu (language, video, audio, controls; Start+Back on a controller);
    F5 = save state, F8 = load state (slot 1..9 with the number keys; <rom>.sN; done at the next pass of the game's main loop);
    F12 = screenshot (shot-N.ppm); window close or Quit in the menu = quit. Controller: B/A = A/B, shoulders = L/R, Start, Back = Select, D-pad or left stick. */
 #include "gba_sys.h"
@@ -29,27 +29,11 @@ void sys_report(void) {} /* only the headless runner reports */
 static u32 key_state(void) {
     const Uint8 *k = SDL_GetKeyboardState(NULL);
     u32 r = 0;
-    r |= k[SDL_SCANCODE_X] ? 1 : 0;
-    r |= k[SDL_SCANCODE_Z] ? 2 : 0;
-    r |= (k[SDL_SCANCODE_BACKSPACE] || k[SDL_SCANCODE_RSHIFT]) ? 4 : 0;
-    r |= k[SDL_SCANCODE_RETURN] ? 8 : 0;
-    r |= k[SDL_SCANCODE_RIGHT] ? 16 : 0;
-    r |= k[SDL_SCANCODE_LEFT] ? 32 : 0;
-    r |= k[SDL_SCANCODE_UP] ? 64 : 0;
-    r |= k[SDL_SCANCODE_DOWN] ? 128 : 0;
-    r |= k[SDL_SCANCODE_S] ? 256 : 0;
-    r |= k[SDL_SCANCODE_A] ? 512 : 0;
+    for (int i = 0; i < 10; i++) {
+        if (k[kb[i]]) r |= 1u << i;
+        if (pad && SDL_GameControllerGetButton(pad, (SDL_GameControllerButton)pb[i])) r |= 1u << i;
+    }
     if (pad) {
-        r |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_B) ? 1 : 0;
-        r |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A) ? 2 : 0;
-        r |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_BACK) ? 4 : 0;
-        r |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_START) ? 8 : 0;
-        r |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT) ? 16 : 0;
-        r |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT) ? 32 : 0;
-        r |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP) ? 64 : 0;
-        r |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN) ? 128 : 0;
-        r |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) ? 256 : 0;
-        r |= SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER) ? 512 : 0;
         int ax = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX), ay = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY);
         r |= ax > 16000 ? 16 : 0; r |= ax < -16000 ? 32 : 0; r |= ay < -16000 ? 64 : 0; r |= ay > 16000 ? 128 : 0;
     }

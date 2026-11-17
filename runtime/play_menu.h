@@ -12,6 +12,18 @@
 
 typedef struct { int lang; int fit; int smooth; int fullscreen; int volume; } Settings; /* lang: index into langs[] */
 static Settings cfg;
+/* The controls: for each button of the GBA (bit i of KEYINPUT: A B Select Start Right Left Up Down R L) a keyboard
+ * scancode and a controller button, one of each. Kept in config.ini as key_<name> (scancode name) and pad_<name> (number). */
+static const char *gba_btn[10] = {"a", "b", "select", "start", "right", "left", "up", "down", "r", "l"};
+static int kb[10], pb[10];
+static void bind_defaults(void) {
+    static const int k[10] = {SDL_SCANCODE_X, SDL_SCANCODE_Z, SDL_SCANCODE_BACKSPACE, SDL_SCANCODE_RETURN, SDL_SCANCODE_RIGHT, SDL_SCANCODE_LEFT,
+                              SDL_SCANCODE_UP, SDL_SCANCODE_DOWN, SDL_SCANCODE_S, SDL_SCANCODE_A};
+    static const int b[10] = {SDL_CONTROLLER_BUTTON_B, SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_BACK, SDL_CONTROLLER_BUTTON_START,
+                              SDL_CONTROLLER_BUTTON_DPAD_RIGHT, SDL_CONTROLLER_BUTTON_DPAD_LEFT, SDL_CONTROLLER_BUTTON_DPAD_UP,
+                              SDL_CONTROLLER_BUTTON_DPAD_DOWN, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, SDL_CONTROLLER_BUTTON_LEFTSHOULDER};
+    for (int i = 0; i < 10; i++) { kb[i] = k[i]; pb[i] = b[i]; }
+}
 static char cfg_path[600], game_dir[512] = ".", brand[64] = "";
 static uint8_t *rom_orig; /* the ROM as read from disk: the language is applied on a copy that is restored first */
 static int menu_quit;
@@ -33,6 +45,7 @@ static int lang_index(const char *code) {
 
 static void cfg_load(void) {
     cfg_defaults();
+    bind_defaults();
     FILE *f = cfg_path[0] ? fopen(cfg_path, "r") : NULL;
     if (!f) return;
     char line[256];
@@ -46,6 +59,12 @@ static void cfg_load(void) {
         else if (!strcmp(line, "scaling")) cfg.fit = !strcmp(v, "fit");
         else if (!strcmp(line, "smooth")) cfg.smooth = atoi(v) != 0;
         else if (!strcmp(line, "fullscreen")) cfg.fullscreen = atoi(v) != 0;
+        else if (!strncmp(line, "key_", 4) || !strncmp(line, "pad_", 4)) {
+            for (int i = 0; i < 10; i++) if (!strcmp(line + 4, gba_btn[i])) {
+                if (line[0] == 'k') { SDL_Scancode sc = SDL_GetScancodeFromName(v); if (sc != SDL_SCANCODE_UNKNOWN) kb[i] = sc; }
+                else if (atoi(v) >= 0 && atoi(v) < SDL_CONTROLLER_BUTTON_MAX) pb[i] = atoi(v);
+            }
+        }
         else if (!strcmp(line, "volume")) { cfg.volume = atoi(v); if (cfg.volume < 0) cfg.volume = 0; if (cfg.volume > 100) cfg.volume = 100; }
     }
     fclose(f);
@@ -56,6 +75,7 @@ static void cfg_save(void) {
     if (!f) return;
     fprintf(f, "# Options of the player. Edit by hand or from the menu (F1).\nlanguage=%s\nscaling=%s\nsmooth=%d\nfullscreen=%d\nvolume=%d\n",
             langs[cfg.lang].code, cfg.fit ? "fit" : "integer", cfg.smooth, cfg.fullscreen, cfg.volume);
+    for (int i = 0; i < 10; i++) fprintf(f, "key_%s=%s\npad_%s=%d\n", gba_btn[i], SDL_GetScancodeName((SDL_Scancode)kb[i]), gba_btn[i], pb[i]);
     fclose(f);
 }
 
@@ -120,6 +140,11 @@ static const char *tr(const char *s) {
         {"Softens the edges of the scaled picture.", "Suaviza los bordes de la imagen ampliada."},
         {"Switches between a window and the whole screen (F11).", "Alterna entre ventana y pantalla completa (F11)."},
         {"Volume of the game's sound.", "Volumen del sonido del juego."},
+        {"Controls", "Controles"}, {"Up", "Arriba"}, {"Down", "Abajo"}, {"Left", "Izquierda"}, {"Right", "Derecha"}, {"Restore controls", "Restaurar controles"},
+        {"Choose the key and the controller button for this one. Enter, then press what you want; Esc cancels.",
+         "Elige la tecla y el bot\xC3\xB3n del mando de este. Intro y luego pulsa lo que quieras; Esc cancela."},
+        {"Puts every key and button back to its default.", "Devuelve todas las teclas y botones a su valor."},
+        {"Press a key or a controller button. Esc cancels.", "Pulsa una tecla o un bot\xC3\xB3n del mando. Esc cancela."},
         {"Up Down: choose   Enter: change   Esc: back", "Intro: cambiar   Esc: volver"},
     };
     if (cfg.lang == 1) for (size_t i = 0; i < sizeof es / sizeof es[0]; i++) if (!strcmp(es[i][0], s)) return es[i][1];
@@ -143,38 +168,78 @@ static const Row rows_video[] = {
     {"Full screen", "Switches between a window and the whole screen (F11)."},
 };
 static const Row rows_audio[] = { {"Volume", "Volume of the game's sound."} };
-static const Category cats[] = {
-    {"Game", rows_game, 4}, {"Video", rows_video, 3}, {"Audio", rows_audio, 1},
+/* the buttons in the order of the menu: the index into kb[] and pb[] of row r */
+static const int ctl_order[10] = {6, 7, 5, 4, 0, 1, 9, 8, 3, 2};
+static const Row rows_ctl[] = {
+    {"Up", "Choose the key and the controller button for this one. Enter, then press what you want; Esc cancels."},
+    {"Down", "Choose the key and the controller button for this one. Enter, then press what you want; Esc cancels."},
+    {"Left", "Choose the key and the controller button for this one. Enter, then press what you want; Esc cancels."},
+    {"Right", "Choose the key and the controller button for this one. Enter, then press what you want; Esc cancels."},
+    {"A", "Choose the key and the controller button for this one. Enter, then press what you want; Esc cancels."},
+    {"B", "Choose the key and the controller button for this one. Enter, then press what you want; Esc cancels."},
+    {"L", "Choose the key and the controller button for this one. Enter, then press what you want; Esc cancels."},
+    {"R", "Choose the key and the controller button for this one. Enter, then press what you want; Esc cancels."},
+    {"Start", "Choose the key and the controller button for this one. Enter, then press what you want; Esc cancels."},
+    {"Select", "Choose the key and the controller button for this one. Enter, then press what you want; Esc cancels."},
+    {"Restore controls", "Puts every key and button back to its default."},
 };
-#define N_CATS 3
+static const Category cats[] = {
+    {"Game", rows_game, 4}, {"Video", rows_video, 3}, {"Audio", rows_audio, 1}, {"Controls", rows_ctl, 11},
+};
+#define N_CATS 4
+static int menu_capture = -1; /* the row waiting for a key or a button, or -1 */
 
 static int menu_tab, menu_focus /* 0 sidebar, 1 rows */, menu_sel[N_CATS], menu_off[N_CATS], menu_dirty = 1;
 
-/* The value shown of a row; kind: 0 plain action, 1 choice, 2 bar. */
+static const char *pad_name(int b) {
+    static const char *n[] = {"A", "B", "X", "Y", "Back", "Guide", "Start", "L3", "R3", "LB", "RB", "D\xE2\x86\x91", "D\xE2\x86\x93", "D\xE2\x86\x90", "D\xE2\x86\x92"};
+    return b >= 0 && b < 15 ? n[b] : "?";
+}
+
+/* The value shown of a row; kind: 0 plain action, 1 choice, 2 bar, 3 a binding. */
 static void row_value(int tab, int r, char *val, size_t n, int *kind, int *pct) {
     *kind = 1; *pct = 0; val[0] = 0;
-    switch (tab * 10 + r) {
+    switch (tab * 100 + r) {
     case 0:  snprintf(val, n, "%s", langs[cfg.lang].name); break;
     case 1: case 2: case 3: *kind = 0; break;
-    case 10: snprintf(val, n, "%s", tr(cfg.fit ? "Fit" : "Whole")); break;
-    case 11: snprintf(val, n, "%s", tr(cfg.smooth ? "On" : "Off")); break;
-    case 12: snprintf(val, n, "%s", tr(cfg.fullscreen ? "On" : "Off")); break;
-    case 20: *kind = 2; *pct = cfg.volume; snprintf(val, n, "%d%%", cfg.volume); break;
+    case 100: snprintf(val, n, "%s", tr(cfg.fit ? "Fit" : "Whole")); break;
+    case 101: snprintf(val, n, "%s", tr(cfg.smooth ? "On" : "Off")); break;
+    case 102: snprintf(val, n, "%s", tr(cfg.fullscreen ? "On" : "Off")); break;
+    case 200: *kind = 2; *pct = cfg.volume; snprintf(val, n, "%d%%", cfg.volume); break;
+    case 310: *kind = 0; break;
+    default:
+        if (tab == 3 && r < 10) {
+            *kind = 3;
+            if (menu_capture == r) snprintf(val, n, "...");
+            else snprintf(val, n, "%s · %s", SDL_GetScancodeName((SDL_Scancode)kb[ctl_order[r]]), pad_name(pb[ctl_order[r]]));
+        }
+        break;
     }
 }
 
 static void menu_change(int dir) { /* dir: -1, +1, or 0 for Enter */
     int s = menu_sel[menu_tab], d = dir ? dir : 1;
-    switch (menu_tab * 10 + s) {
+    switch (menu_tab * 100 + s) {
     case 0: cfg.lang = (cfg.lang + d + N_LANGS) % N_LANGS; cfg_save(); apply_language(); break;
     case 1: if (dir == 0) { cfg_save(); apply_language(); } break;
     case 2: if (dir == 0) { int l = cfg.lang; cfg_defaults(); cfg.lang = l; apply_video(); } break;
     case 3: if (dir == 0) menu_quit = 1; break;
-    case 10: cfg.fit = !cfg.fit; break;
-    case 11: cfg.smooth = !cfg.smooth; break;
-    case 12: cfg.fullscreen = !cfg.fullscreen; apply_video(); break;
-    case 20: cfg.volume += 10 * d; if (cfg.volume < 0) cfg.volume = 0; if (cfg.volume > 100) cfg.volume = 100; break;
+    case 100: cfg.fit = !cfg.fit; break;
+    case 101: cfg.smooth = !cfg.smooth; break;
+    case 102: cfg.fullscreen = !cfg.fullscreen; apply_video(); break;
+    case 200: cfg.volume += 10 * d; if (cfg.volume < 0) cfg.volume = 0; if (cfg.volume > 100) cfg.volume = 100; break;
+    case 310: if (dir == 0) bind_defaults(); break;
+    default: if (menu_tab == 3 && s < 10 && dir == 0) menu_capture = s; break;
     }
+    menu_dirty = 1;
+}
+
+/* Gives the button of row r the key or controller button just pressed; what had it takes the old one (a swap). */
+static void bind_set(int r, int is_pad, int code) {
+    int *v = is_pad ? pb : kb, me = ctl_order[r];
+    for (int i = 0; i < 10; i++) if (i != me && v[i] == code) v[i] = v[me];
+    v[me] = code;
+    menu_capture = -1;
     menu_dirty = 1;
 }
 
@@ -259,6 +324,8 @@ static void drawer_draw(Canvas *c) {
         if (kind == 2) {
             ui_slider(c, px + pw - 74, y + 6, 46, pct);
             text_right(c, px + pw - 2, y + 5, val, on ? th_gold : th_ink);
+        } else if (kind == 3) {
+            text_right(c, px + pw - 4, y + 5, val, menu_capture == r ? th_gold : on ? th_gold : th_ink);
         } else if (kind == 1) {
             text_right(c, px + pw - 12, y + 5, val, on ? th_gold : th_ink);
             if (on) { ui_arrow(c, px + pw - 12 - text_w(val) - 8, y + 6, -1, th_gold); ui_arrow(c, px + pw - 9, y + 6, 1, th_gold); }
@@ -270,7 +337,7 @@ static void drawer_draw(Canvas *c) {
     }
     /* what the chosen row does, and the keys */
     ui_rule(c, 8, h - 56, w - 18);
-    text_wrap(c, 12, h - 48, tr(cat->rows[sel].desc), w - 26, 3, dim);
+    text_wrap(c, 12, h - 48, tr(menu_capture >= 0 ? "Press a key or a controller button. Esc cancels." : cat->rows[sel].desc), w - 26, 3, menu_capture >= 0 ? th_gold : dim);
     text_draw(c, 12, h - 14, tr("Up Down: choose   Enter: change   Esc: back"), ui_mix(th_ink, th_bg, 1, 2), 1);
 }
 
@@ -366,6 +433,12 @@ static int menu_run(void) {
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) menu_quit = 1;
             else if (e.type == SDL_WINDOWEVENT) menu_dirty = 1;
+            else if (menu_capture >= 0) { /* waiting for the key or the button for a control */
+                if (e.type == SDL_KEYDOWN) {
+                    if (e.key.keysym.sym == SDLK_ESCAPE) { menu_capture = -1; menu_dirty = 1; }
+                    else if (e.key.keysym.scancode != SDL_SCANCODE_F1 && e.key.keysym.scancode != SDL_SCANCODE_F11) bind_set(menu_capture, 0, e.key.keysym.scancode);
+                } else if (e.type == SDL_CONTROLLERBUTTONDOWN) bind_set(menu_capture, 1, e.cbutton.button);
+            }
             else if (e.type == SDL_KEYDOWN) {
                 SDL_Keycode k = e.key.keysym.sym;
                 if (k == SDLK_F1) open = 0;
