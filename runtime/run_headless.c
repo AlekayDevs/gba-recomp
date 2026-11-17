@@ -166,7 +166,7 @@ int main(int argc, char **argv) {
 #endif
         if (!strcmp(argv[i], "--romstat") && i + 1 < argc) { sscanf(argv[++i], "%u:%u", &stat_from, &stat_to); continue; }
 #endif
-        if ((!strcmp(argv[i], "--game-dir") || !strcmp(argv[i], "--language")) && i + 1 < argc) { i++; continue; }
+        if ((!strcmp(argv[i], "--game-dir") || !strcmp(argv[i], "--language") || !strcmp(argv[i], "--game-opt")) && i + 1 < argc) { i++; continue; }
         if (!strcmp(argv[i], "--watch") && i + 1 < argc) { watch_every = (u32)atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--script") && i + 1 < argc) {
             /* one press per line: KEY FRAME [LEN] */

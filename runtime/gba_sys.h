@@ -44,7 +44,8 @@ void rt_game_start(int argc, char **argv);
 /* Game options: the game's own C (games/<id>/options.c, built with -DRT_GAME_OPTS) lists them in game_opts[] and may poke the
  * machine each frame in game_frame(); the player's menu shows them in "Extras", they live in config.ini (opt_<id>=) and on the
  * command line (--game-opt id=value). The game's code asks for one with rt_opt("id"). Toggles have min 0 and max 1. */
-typedef struct { const char *id, *name, *name_es, *desc, *desc_es; int def, min, max; } GameOpt;
+typedef struct { const char *id, *name, *name_es, *desc, *desc_es; int def, min, max; const char *values, *values_es; } GameOpt;
+/* values / values_es (optional): the names of min..max, separated by commas ("Off,Hold B,Always"); without them a toggle says On/Off and a range its number. */
 #define RT_MAX_OPTS 32
 extern int rt_opt_val[RT_MAX_OPTS];
 int rt_opt(const char *id);              /* the value of an option (0 when there is no such option) */

@@ -10,7 +10,7 @@ En `games/<id>/options.c` (el nombre importa: `gba-port` lo reconoce y compila c
 #include "gba_sys.h"
 
 const GameOpt game_opts[] = {
-    /* id,          nombre,      nombre es,    descripción,              descripción es,           defecto, mín, máx */
+    /* id, nombre, nombre es, descripción, descripción es, defecto, mín, máx, [valores, valores es] */
     {"fast_text", "Fast text", "Texto rápido", "Text appears faster.", "El texto sale más rápido.", 0,       0,   1},
 };
 const int game_opt_count = 1;
@@ -24,3 +24,4 @@ void game_frame(void) {          /* una vez por fotograma, entre fotogramas */
 - `rt_opt("id")` da el valor actual; `game_frame` se llama justo antes del gancho de fotograma del reproductor y del ejecutable sin ventana, así que las pruebas con `run_headless --game-opt ...` ven lo mismo.
 - Hasta 32 opciones. Los textos en español solo se usan si el juego está en español (`name_es`, `desc_es`; si están vacíos sale el inglés).
 - Límite de este mecanismo: `game_frame` actúa sobre la memoria entre fotogramas. Para cambiar el comportamiento *dentro* de una función del juego hará falta un gancho en el código generado (todavía no hay).
+- Para un selector con nombres, los dos últimos campos dan los nombres de los valores separados por comas: `{"fast_text", ..., 0, 0, 2, "Off,Hold B,Always", "No,Con B,Siempre"}`.

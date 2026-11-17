@@ -240,7 +240,14 @@ static void row_value(int tab, int r, char *val, size_t n, int *kind, int *pct) 
     default:
         if (tab == TAB_OPTS) {
             const GameOpt *o = rt_opt_get(r);
-            if (o && o->min == 0 && o->max == 1) snprintf(val, n, "%s", tr(rt_opt_val[r] ? "On" : "Off"));
+            const char *names = o ? (cfg.lang == 1 && o->values_es && o->values_es[0] ? o->values_es : o->values) : NULL;
+            if (o && names && names[0]) { /* the name of the chosen value: the (value - min)th of the list */
+                const char *p = names; int k = rt_opt_val[r] - o->min;
+                while (k-- > 0 && (p = strchr(p, ','))) p++;
+                size_t len = p ? strcspn(p, ",") : 0;
+                snprintf(val, n, "%.*s", (int)len, p ? p : "");
+            }
+            else if (o && o->min == 0 && o->max == 1) snprintf(val, n, "%s", tr(rt_opt_val[r] ? "On" : "Off"));
             else if (o) snprintf(val, n, "%d", rt_opt_val[r]);
         } else if (tab == 3 && r < 10) {
             *kind = 3;
