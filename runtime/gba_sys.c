@@ -29,11 +29,13 @@ void sys_init(Cpu *c) {
 
 void sys_raise(u32 mask) { io_set16(IO_IF, io_get16(IO_IF) | mask); }
 
+static u32 irq_count; /* interrupt handlers run so far: Halt wakes up when one has run, even if the handler already cleared IF */
 void sys_run_irq(Cpu *c) {
     if (in_irq || !(io_get16(IO_IME) & 1) || !(io_get16(IO_IE) & io_get16(IO_IF))) return;
     u32 handler = rd32(0x03007FFC);
     if (!handler) return;
     in_irq = 1;
+    irq_count++;
     Cpu saved = *c;
     c->spsr[0x12] = rt_mrs(c);
     rt_msr(c, 1, 0x92); /* IRQ mode: banks sp and lr */
@@ -148,14 +150,19 @@ static int cur_line;
 static u32 poll_cycles;
 extern void sys_report(void);
 
+static int irq_frozen; /* the handler of a VCOUNT interrupt runs before its line is drawn: time does not pass while it does */
 static void sys_step_line(Cpu *c, int deliver) {
     int line = cur_line;
     u32 ds = io_get16(IO_DISPSTAT);
     io_set16(IO_VCOUNT, line);
     ds &= ~7u;
     if (line >= 160 && line != 227) ds |= 1;
-    if (line == (int)(ds >> 8)) { ds |= 4; if (ds & 0x20) sys_raise(4); }
+    int vmatch = line == (int)(ds >> 8);
+    if (vmatch) { ds |= 4; if (ds & 0x20) sys_raise(4); }
     io_set16(IO_DISPSTAT, ds);
+    /* the VCOUNT interrupt is taken at the start of the line, before it is drawn: what its handler writes (a palette, a scroll) shows
+       from this very line, as on the console, where the handler runs well inside the visible part of the line */
+    if (vmatch && (ds & 0x20) && deliver) { irq_frozen = 1; sys_run_irq(c); irq_frozen = 0; }
     if (line < 160) ppu_line(line);
     if (line == 160) {
         if (ds & 8) sys_raise(1);
@@ -194,14 +201,16 @@ void sys_frame(Cpu *c) {
 
 /* Halt: the CPU sleeps until an interrupt that is enabled is raised */
 void sys_halt(Cpu *c) {
+    u32 before = irq_count;
     for (int i = 0; i < 228 * 2; i++) {
         sys_step_line(c, 1);
-        if (io_get16(IO_IE) & io_get16(IO_IF)) return;
+        if (irq_count != before || (io_get16(IO_IE) & io_get16(IO_IF))) return;
     }
 }
 
 /* a read of a register that changes with time (VCOUNT, DISPSTAT, timers, IF) is a poll: each costs some cycles, and time moves on */
 void sys_poll(void) {
+    if (irq_frozen) return;
     poll_cycles += 30;
     if (poll_cycles >= 1232) {
         poll_cycles -= 1232;
@@ -213,6 +222,7 @@ void sys_poll(void) {
 int rt_budget = 300;
 void rt_yield(Cpu *c) {
     rt_budget = 300;
+    if (irq_frozen) return;
     sys_step_line(c, 1);
 }
 

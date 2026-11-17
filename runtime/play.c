@@ -88,6 +88,14 @@ static void on_frame(u32 frame) {
             }
         }
     }
+    /* the device starts only when about four frames are queued, and stops again if it runs dry: without that cushion the
+       device (which asks for 1024 samples at a time) outruns a queue that is refilled one frame at a time, and it crackles */
+    if (audio) {
+        static int primed;
+        Uint32 queued = SDL_GetQueuedAudioSize(audio);
+        if (!primed && queued >= 4 * 549 * 4) { SDL_PauseAudioDevice(audio, 0); primed = 1; }
+        else if (primed && queued == 0) { SDL_PauseAudioDevice(audio, 1); primed = 0; }
+    }
     apu_n = 0;
     /* rewind: a state every 3 frames while the game runs; holding R (or L3) goes back one step per frame */
     int rewinding = cfg.rewind && (SDL_GetKeyboardState(NULL)[SDL_SCANCODE_R] || (pad && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_LEFTSTICK)));
@@ -182,9 +190,9 @@ int main(int argc, char **argv) {
     {
         SDL_AudioSpec want, have;
         SDL_zero(want);
-        want.freq = 32768; want.format = AUDIO_S16SYS; want.channels = 2; want.samples = 1024;
+        want.freq = 32768; want.format = AUDIO_S16SYS; want.channels = 2; want.samples = 512;
         audio = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
-        if (audio) SDL_PauseAudioDevice(audio, 0); else fprintf(stderr, "no audio: %s
+        if (audio) SDL_PauseAudioDevice(audio, 1); else fprintf(stderr, "no audio: %s
 ", SDL_GetError());
     }
     freq = SDL_GetPerformanceFrequency();
