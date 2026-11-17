@@ -57,7 +57,7 @@ static u32 key_state(void) {
 }
 
 static void on_frame(u32 frame) {
-    if (menu_shot_path && frame == 120) menu_shot();
+    if (menu_shot_path && frame == 900) menu_shot();
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_QUIT) exit(0);
@@ -138,7 +138,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--game-dir") && i + 1 < argc) snprintf(game_dir, sizeof game_dir, "%s", argv[++i]);
         else if (!strcmp(argv[i], "--language") && i + 1 < argc) cli_lang = argv[++i];
         else if (!strcmp(argv[i], "--menu-shot") && i + 1 < argc) menu_shot_path = argv[++i];
-        else if (!strcmp(argv[i], "--menu-tab") && i + 1 < argc) menu_tab = atoi(argv[++i]) % TAB_COUNT;
+        else if (!strcmp(argv[i], "--menu-tab") && i + 1 < argc) menu_tab = atoi(argv[++i]) % N_CATS;
+        else if (!strcmp(argv[i], "--menu-focus") && i + 1 < argc) menu_focus = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--menu-size") && i + 1 < argc) sscanf(argv[++i], "%dx%d", &menu_shot_w, &menu_shot_h);
+        else if (!strcmp(argv[i], "--brand") && i + 1 < argc) snprintf(brand, sizeof brand, "%s", argv[++i]);
+        else if (!strcmp(argv[i], "--theme") && i + 1 < argc) theme_parse(argv[++i]);
         else if (!strcmp(argv[i], "--fullscreen")) full = 1;
         else if (!strcmp(argv[i], "--nolimit")) limit = 0;
     }
@@ -151,6 +155,7 @@ int main(int argc, char **argv) {
     if (fread(rt_rom, 1, rt_rom_len, f) != rt_rom_len) return 1;
     fclose(f);
     /* settings: config.ini in the saves folder (or next to the ROM); a --language on the command line wins and is kept */
+    emblem_load();
     snprintf(cfg_path, sizeof cfg_path, "%s/config.ini", saves_dir ? saves_dir : ".");
     cfg_load();
     if (cli_lang[0] && strcmp(cli_lang, "dump")) { int l = lang_index(cli_lang); if (l != cfg.lang) { cfg.lang = l; cfg_save(); } }

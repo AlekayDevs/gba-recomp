@@ -311,6 +311,7 @@ pub fn run(o: &Options, launch: bool, game_args: &[String], ui: &dyn Ui) -> i32 
     match Command::new(&player).arg(&o.rom).arg("--saves").arg(&saves).arg("--title").arg(&game.title)
         .arg("--game-dir").arg(game_dir(&game).unwrap_or_default())
         .arg("--language").arg(std::env::var("GBA_PORT_LANGUAGE").unwrap_or_default())
+        .args(theme_args(&game))
         .args(game_args).status() {
         Ok(s) => s.code().unwrap_or(EXIT_FAILED),
         Err(e) => {
@@ -318,6 +319,15 @@ pub fn run(o: &Options, launch: bool, game_args: &[String], ui: &dyn Ui) -> i32 
             EXIT_FAILED
         }
     }
+}
+
+/// The look of the player's menu from `[launcher]` of the profile: `--brand NAME --theme BG,PANEL,GOLD,INK` (RRGGBB).
+fn theme_args(game: &Game) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(&game.profile) else { return Vec::new() };
+    let b = crate::launcher::parse_brand(&text, game.profile.parent().unwrap_or(Path::new(".")));
+    let rgb = |c: u32| format!("{:02X}{:02X}{:02X}", c & 0xFF, (c >> 8) & 0xFF, (c >> 16) & 0xFF); // 0x00BBGGRR to RRGGBB
+    let t = b.theme;
+    vec!["--brand".into(), b.name, "--theme".into(), format!("{},{},{},{}", rgb(t.bg), rgb(t.panel), rgb(t.gold), rgb(t.ink))]
 }
 
 /// Where saves and save states go: `saves/` next to the profiles (so, next to the program in a package), or in the
