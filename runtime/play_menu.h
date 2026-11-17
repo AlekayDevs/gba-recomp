@@ -195,7 +195,7 @@ static const char *tr(const char *s) {
         {"Volume of the game's sound.", "Volumen del sonido del juego."},
         {"Opacity", "Opacidad"}, {"Size", "Tama\xC3\xB1o"}, {"Quick buttons", "Botones r\xC3\xA1pidos"},
         {"Vibration", "Vibraci\xC3\xB3n"}, {"Left-handed", "Modo zurdo"}, {"Hide with controller", "Ocultar con mando"},
-        {"Edit buttons", "Editar botones"}, {"Reset", "Restablecer"}, {"Done", "Hecho"}, {"Drag a button", "Arrastra un bot\xC3\xB3n para moverlo."},
+        {"Edit buttons", "Editar botones"}, {"Reset", "Restablecer"}, {"Done", "Hecho"}, {"Drag a button", "Arrastra un bot\xC3\xB3n"},
         {"Drag each button where you want it and set its size and opacity.", "Arrastra cada bot\xC3\xB3n adonde quieras y ajusta su tama\xC3\xB1o y opacidad."},
         {"A short tick when you press a button on the screen.", "Una vibraci\xC3\xB3n corta al pulsar un bot\xC3\xB3n de la pantalla."},
         {"Puts the pad on the right and A and B on the left.", "Pone la cruceta a la derecha y A y B a la izquierda."},
