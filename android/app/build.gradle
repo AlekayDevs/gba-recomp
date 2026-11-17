@@ -31,6 +31,31 @@ android {
     }
     externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt'; version '3.22.1' } }
     lint { checkReleaseBuilds false }
+    // La firma de las versiones: la clave NO esta en el repositorio. Va en ~/.gradle/gradle.properties:
+    //   gbaPort.keystore=/ruta/a/gba-port.jks  gbaPort.keystorePassword=...  gbaPort.keyAlias=...  gbaPort.keyPassword=...
+    // Sin ella, assembleRelease firma con la clave de depuracion (solo para probar, no se reparte).
+    def haveKey = providers.gradleProperty('gbaPort.keystore').isPresent()
+    signingConfigs {
+        if (haveKey) {
+            release {
+                storeFile file(providers.gradleProperty('gbaPort.keystore').get())
+                storePassword providers.gradleProperty('gbaPort.keystorePassword').get()
+                keyAlias providers.gradleProperty('gbaPort.keyAlias').get()
+                keyPassword providers.gradleProperty('gbaPort.keyPassword').get()
+            }
+        }
+    }
+    buildTypes {
+        release {
+            debuggable false
+            minifyEnabled false
+            if (haveKey) signingConfig signingConfigs.release
+            else {
+                signingConfig signingConfigs.debug
+                logger.warn('AVISO: sin gbaPort.keystore, el APK de release va firmado con la clave de depuracion: no se reparte.')
+            }
+        }
+    }
     packaging { jniLibs { useLegacyPackaging true } }
     sourceSets {
         main {
@@ -48,6 +73,7 @@ tasks.register('gameAssets', Sync) {
     from("${repo}/runtime") { include 'gba_rt.h'; into 'tcc_include' } // la interfaz del runtime: codigo propio
     from(profile) { into 'game'; rename { 'profile.toml' } }
     from(new File(profile.parentFile, 'dynamic_roots.txt')) { into 'game'; rename { 'roots.txt' } }
+    from("${rootProject.projectDir}/NOTICE.txt") { into 'licenses' }
     from("${tinycc}/COPYING") { into 'licenses'; rename { 'libtcc-LGPL-2.1.txt' } }
     from("${sdl}/LICENSE.txt") { into 'licenses'; rename { 'SDL2-zlib.txt' } }
     doLast {

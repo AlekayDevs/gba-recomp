@@ -34,7 +34,7 @@ public class LauncherActivity extends Activity {
 
     private final boolean es = Locale.getDefault().getLanguage().equals("es");
     private TextView status;
-    private Pixel.Button play, pick;
+    private Pixel.Button play, pick, licences;
 
     private String t(String en, String sp) { return es ? sp : en; }
 
@@ -101,12 +101,44 @@ public class LauncherActivity extends Activity {
         });
         root.addView(pick);
 
+        licences = button(false);
+        licences.setLabel(t("Licences", "Licencias"));
+        licences.setOnClickListener(v -> showLicences());
+        root.addView(licences);
+
         ScrollView sv = new ScrollView(this);
         sv.setFillViewport(true);
         sv.addView(root, new ViewGroup.LayoutParams(-1, -1));
         frame.addView(sv, new FrameLayout.LayoutParams(-1, -1));
         setContentView(frame);
         refresh(null);
+    }
+
+    /** Los avisos de terceros (LGPL de libtcc y zlib de SDL2) con el texto de las licencias, tal como van en los assets. */
+    private void showLicences() {
+        StringBuilder sb = new StringBuilder();
+        try {
+            for (String f : new String[] {"NOTICE.txt", "libtcc-LGPL-2.1.txt", "SDL2-zlib.txt"}) {
+                try (InputStream in = getAssets().open("licenses/" + f)) {
+                    byte[] b = new byte[8192];
+                    for (int n; (n = in.read(b)) > 0; ) sb.append(new String(b, 0, n, "UTF-8"));
+                }
+                sb.append("\n\n----------------------------------------\n\n");
+            }
+        } catch (Exception e) {
+            sb.append(t("Could not read the licences: ", "No se pudieron leer las licencias: ")).append(e.getMessage());
+        }
+        TextView tv = new TextView(this);
+        tv.setText(sb.toString());
+        tv.setTextColor(INK);
+        tv.setTextSize(12);
+        tv.setTypeface(android.graphics.Typeface.MONOSPACE);
+        tv.setPadding(40, 30, 40, 30);
+        tv.setBackgroundColor(0xFF0C2014);
+        ScrollView sv = new ScrollView(this);
+        sv.addView(tv);
+        new android.app.AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            .setTitle(t("Licences", "Licencias")).setView(sv).setPositiveButton(t("Close", "Cerrar"), null).show();
     }
 
     /** Pone los textos según haya ROM válida; err es un aviso a mostrar (o null). */
