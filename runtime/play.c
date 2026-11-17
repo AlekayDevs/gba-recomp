@@ -1,8 +1,8 @@
 /* Plays the recompiled game in a window (SDL2): video, keyboard and game controller, frame pacing at 59.7275 Hz.
      play <rom.gba> [--scale N] [--fullscreen] [--nolimit]
-   Keys: arrows, X = A, Z = B, A = L, S = R, Enter = Start, Backspace = Select; Tab (held) = fast forward; F11 = full screen;
+   Keys: arrows, X = A, Z = B, A = L, S = R, Enter = Start, Backspace = Select; Tab (held) = fast forward; F11 = full screen; F1 or Esc = menu (language, video, audio; Start+Back on a controller);
    F5 = save state, F8 = load state (slot 1..9 with the number keys; <rom>.sN; done at the next pass of the game's main loop);
-   F12 = screenshot (shot-N.ppm); Esc = quit. Controller: B/A = A/B, shoulders = L/R, Start, Back = Select, D-pad or left stick. */
+   F12 = screenshot (shot-N.ppm); window close or Quit in the menu = quit. Controller: B/A = A/B, shoulders = L/R, Start, Back = Select, D-pad or left stick. */
 #include "gba_sys.h"
 #include <setjmp.h>
 #define SDL_MAIN_HANDLED
@@ -23,6 +23,8 @@ static char state_base[512];
 static Uint64 next_tick, freq;
 
 void sys_report(void) {} /* only the headless runner reports */
+
+#include "play_menu.h"
 
 static u32 key_state(void) {
     const Uint8 *k = SDL_GetKeyboardState(NULL);
@@ -55,13 +57,17 @@ static u32 key_state(void) {
 }
 
 static void on_frame(u32 frame) {
-    (void)frame;
+    if (menu_shot_path && frame == 120) menu_shot();
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
-        if (e.type == SDL_QUIT || (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE)) exit(0);
+        if (e.type == SDL_QUIT) exit(0);
+        if (e.type == SDL_KEYDOWN && (e.key.keysym.sym == SDLK_ESCAPE || e.key.keysym.sym == SDLK_F1)) { if (menu_run()) exit(0); }
+        if (e.type == SDL_CONTROLLERBUTTONDOWN && pad && e.cbutton.button == SDL_CONTROLLER_BUTTON_START
+            && SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_BACK)) { if (menu_run()) exit(0); }
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_F11) {
-            Uint32 f = SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP;
-            SDL_SetWindowFullscreen(win, f ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+            cfg.fullscreen = !cfg.fullscreen;
+            SDL_SetWindowFullscreen(win, cfg.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+            cfg_save();
         }
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym >= SDLK_1 && e.key.keysym.sym <= SDLK_9) {
             slot = e.key.keysym.sym - SDLK_0;
@@ -86,7 +92,16 @@ static void on_frame(u32 frame) {
     }
     /* sound: the samples of this frame go to the device; when it is far ahead (fast forward, a pause) they are dropped */
     if (audio) {
-        if (SDL_GetQueuedAudioSize(audio) < 32768 * 4 / 5) SDL_QueueAudio(audio, apu_out, apu_n * 4);
+        if (SDL_GetQueuedAudioSize(audio) < 32768 * 4 / 5) {
+            if (cfg.volume >= 100) SDL_QueueAudio(audio, apu_out, apu_n * 4);
+            else {
+                static short scaled[8192 * 2];
+                int n = apu_n * 2 > 8192 * 2 ? 8192 * 2 : apu_n * 2;
+                const short *src = (const short *)apu_out;
+                for (int i = 0; i < n; i++) scaled[i] = (short)(src[i] * cfg.volume / 100);
+                SDL_QueueAudio(audio, scaled, n * 2);
+            }
+        }
     }
     apu_n = 0;
     sys_keys = key_state();
@@ -115,12 +130,15 @@ static void on_frame(u32 frame) {
 int main(int argc, char **argv) {
     if (argc < 2) { fprintf(stderr, "usage: play <rom.gba> [--scale N] [--fullscreen] [--nolimit]\n"); return 2; }
     int scale = 4, full = 0;
-    const char *saves_dir = NULL, *title = "gba-recomp";
+    const char *saves_dir = NULL, *title = "gba-recomp", *cli_lang = "";
     for (int i = 2; i < argc; i++) {
         if (!strcmp(argv[i], "--scale") && i + 1 < argc) scale = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--saves") && i + 1 < argc) saves_dir = argv[++i];
         else if (!strcmp(argv[i], "--title") && i + 1 < argc) title = argv[++i];
-        else if ((!strcmp(argv[i], "--game-dir") || !strcmp(argv[i], "--language")) && i + 1 < argc) i++;
+        else if (!strcmp(argv[i], "--game-dir") && i + 1 < argc) snprintf(game_dir, sizeof game_dir, "%s", argv[++i]);
+        else if (!strcmp(argv[i], "--language") && i + 1 < argc) cli_lang = argv[++i];
+        else if (!strcmp(argv[i], "--menu-shot") && i + 1 < argc) menu_shot_path = argv[++i];
+        else if (!strcmp(argv[i], "--menu-tab") && i + 1 < argc) menu_tab = atoi(argv[++i]) % TAB_COUNT;
         else if (!strcmp(argv[i], "--fullscreen")) full = 1;
         else if (!strcmp(argv[i], "--nolimit")) limit = 0;
     }
@@ -132,17 +150,23 @@ int main(int argc, char **argv) {
     rt_rom = malloc(rt_rom_len);
     if (fread(rt_rom, 1, rt_rom_len, f) != rt_rom_len) return 1;
     fclose(f);
-    rt_game_start(argc, argv);
+    /* settings: config.ini in the saves folder (or next to the ROM); a --language on the command line wins and is kept */
+    snprintf(cfg_path, sizeof cfg_path, "%s/config.ini", saves_dir ? saves_dir : ".");
+    cfg_load();
+    if (cli_lang[0] && strcmp(cli_lang, "dump")) { int l = lang_index(cli_lang); if (l != cfg.lang) { cfg.lang = l; cfg_save(); } }
+    if (full) cfg.fullscreen = 1;
+    rom_orig = malloc(rt_rom_len);
+    memcpy(rom_orig, rt_rom, rt_rom_len);
+    rt_game_init(game_dir, !strcmp(cli_lang, "dump") ? "dump" : langs[cfg.lang].code);
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 240 * scale, 160 * scale,
-                           SDL_WINDOW_RESIZABLE | (full ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
+                           SDL_WINDOW_RESIZABLE);
     ren = win ? SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED) : NULL;
     if (!ren && win) ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
     if (!ren) { fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
     SDL_RenderSetLogicalSize(ren, 240, 160);
-    SDL_RenderSetIntegerScale(ren, SDL_TRUE);
-    tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, 240, 160);
+    apply_video();
     {
         SDL_AudioSpec want, have;
         SDL_zero(want);

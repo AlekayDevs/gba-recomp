@@ -42,8 +42,10 @@ fn main() {
         std::process::exit(1)
     };
     let cache = cache.unwrap_or_else(port::cache_dir);
+    // the player keeps the language in config.ini (the menu's Language row); the flag only sets it for this and later runs
     if let Some(l) = &language {
-        port::set_language(&cache, l);
+        game_args.push("--language".into());
+        game_args.push(if l == "default" { "en".into() } else { l.clone() });
     }
     // the profiles: --games, else games/ of the current folder, else games/ of the package
     let games_dir = games.unwrap_or_else(|| {

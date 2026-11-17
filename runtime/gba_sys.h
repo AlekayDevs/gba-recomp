@@ -41,6 +41,7 @@ extern u32 sys_max_frames;
  * game_init(rom, len, folder of the game's files, language such as "es" or "" for the original). The ROM on disk is never touched.
  * rt_game_start reads --game-dir DIR and --language L from the command line and calls it. */
 void rt_game_start(int argc, char **argv);
+void rt_game_init(const char *game_dir, const char *language); /* the same with the values given (the player's menu calls it again after restoring the ROM image) */
 #ifdef RT_GAME
 void game_init(uint8_t *rom, u32 len, const char *game_dir, const char *language);
 #endif

@@ -120,7 +120,7 @@ const RUNTIME: &[&str] = &["gba_cpu.c", "gba_bus.c", "gba_sys.c", "gba_ppu.c", "
 /// Changes whenever something that shapes the built game changes: the generator, the runtime, the profile and its roots.
 pub fn version_tag(root: &Path, engine: &Path, game: &Game) -> String {
     let mut buf = std::fs::read(engine).unwrap_or_default();
-    for f in RUNTIME.iter().copied().chain(["gba_rt.h", "gba_sys.h"]) {
+    for f in RUNTIME.iter().copied().chain(["gba_rt.h", "gba_sys.h", "play_menu.h", "play_ui.h"]) {
         buf.extend(std::fs::read(root.join("runtime").join(f)).unwrap_or_default());
     }
     buf.extend(std::fs::read(&game.profile).unwrap_or_default());
@@ -310,7 +310,7 @@ pub fn run(o: &Options, launch: bool, game_args: &[String], ui: &dyn Ui) -> i32 
     let _ = std::fs::create_dir_all(&saves);
     match Command::new(&player).arg(&o.rom).arg("--saves").arg(&saves).arg("--title").arg(&game.title)
         .arg("--game-dir").arg(game_dir(&game).unwrap_or_default())
-        .arg("--language").arg(language(&o.cache))
+        .arg("--language").arg(std::env::var("GBA_PORT_LANGUAGE").unwrap_or_default())
         .args(game_args).status() {
         Ok(s) => s.code().unwrap_or(EXIT_FAILED),
         Err(e) => {
@@ -347,21 +347,6 @@ pub fn start_dir(cache: &Path) -> PathBuf {
 pub fn remember_rom(cache: &Path, rom: &Path) {
     let _ = std::fs::create_dir_all(cache);
     let _ = std::fs::write(cache.join("last-rom.txt"), rom.to_string_lossy().as_bytes());
-}
-
-/// The game's text language: `GBA_PORT_LANGUAGE`, else the one saved by `gba-port --language` (empty: the ROM's own).
-pub fn language(cache: &Path) -> String {
-    if let Ok(l) = std::env::var("GBA_PORT_LANGUAGE") {
-        return l;
-    }
-    std::fs::read_to_string(cache.join("language.txt")).map(|l| l.trim().to_string()).unwrap_or_default()
-}
-
-/// Remembers the language for the next runs (`""` or `default` goes back to the ROM's own).
-pub fn set_language(cache: &Path, lang: &str) {
-    let _ = std::fs::create_dir_all(cache);
-    let lang = if lang == "default" { "" } else { lang };
-    let _ = std::fs::write(cache.join("language.txt"), lang.as_bytes());
 }
 
 pub fn recalled_rom(cache: &Path) -> Option<PathBuf> {
