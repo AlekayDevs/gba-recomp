@@ -19,8 +19,8 @@ android {
         applicationId providers.gradleProperty('gbaPort.applicationId').get()
         minSdk 29
         targetSdk 35
-        versionCode 3
-        versionName '0.3'
+        versionCode 4
+        versionName '0.4'
         // Direccion de la ultima release (API de GitHub) para el aviso de version nueva; vacia: la app no busca nada.
         resValue 'string', 'update_url', providers.gradleProperty('gbaPort.updateUrl').getOrElse('')
         ndk { abiFilters 'arm64-v8a' }
