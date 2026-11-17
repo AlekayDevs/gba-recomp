@@ -10,7 +10,7 @@
  * Settings live in config.ini (in the saves folder), apply at once and are saved when the menu closes. */
 #include "play_ui.h"
 
-typedef struct { int lang; int fit; int smooth; int fullscreen; int volume; int rewind; int borders; } Settings; /* lang: index into langs[] */
+typedef struct { int lang; int fit; int smooth; int fullscreen; int volume; int rewind; int borders; int t_opacity, t_size, t_quick; } Settings; /* lang: index into langs[] */
 static Settings cfg;
 /* The controls: for each button of the GBA (bit i of KEYINPUT: A B Select Start Right Left Up Down R L) a keyboard
  * scancode and a controller button, one of each. Kept in config.ini as key_<name> (scancode name) and pad_<name> (number). */
@@ -36,7 +36,7 @@ static int emblem_ok;
 static const struct { const char *code, *name; } langs[] = { {"", "English"}, {"es", "Espa\xC3\xB1ol"} };
 #define N_LANGS 2
 
-static void cfg_defaults(void) { cfg.lang = 0; cfg.fit = 0; cfg.smooth = 0; cfg.fullscreen = 0; cfg.volume = 100; cfg.rewind = 1; cfg.borders = 1; }
+static void cfg_defaults(void) { cfg.lang = 0; cfg.fit = 0; cfg.smooth = 0; cfg.fullscreen = 0; cfg.volume = 100; cfg.rewind = 1; cfg.borders = 1; cfg.t_opacity = 100; cfg.t_size = 100; cfg.t_quick = 1; }
 
 static int lang_index(const char *code) {
     for (int i = 0; i < N_LANGS; i++) if (!strcmp(langs[i].code, code)) return i;
@@ -60,6 +60,9 @@ static void cfg_load(void) {
         else if (!strcmp(line, "smooth")) cfg.smooth = atoi(v) != 0;
         else if (!strcmp(line, "borders")) cfg.borders = atoi(v) != 0;
         else if (!strcmp(line, "fullscreen")) cfg.fullscreen = atoi(v) != 0;
+        else if (!strcmp(line, "touch_opacity")) { cfg.t_opacity = atoi(v); if (cfg.t_opacity < 20) cfg.t_opacity = 20; if (cfg.t_opacity > 100) cfg.t_opacity = 100; }
+        else if (!strcmp(line, "touch_size")) { cfg.t_size = atoi(v); if (cfg.t_size < 70) cfg.t_size = 70; if (cfg.t_size > 130) cfg.t_size = 130; }
+        else if (!strcmp(line, "touch_quick")) cfg.t_quick = atoi(v) != 0;
         else if (!strncmp(line, "key_", 4) || !strncmp(line, "pad_", 4)) {
             for (int i = 0; i < 10; i++) if (!strcmp(line + 4, gba_btn[i])) {
                 if (line[0] == 'k') { SDL_Scancode sc = SDL_GetScancodeFromName(v); if (sc != SDL_SCANCODE_UNKNOWN) kb[i] = sc; }
@@ -78,6 +81,7 @@ static void cfg_save(void) {
     if (!f) return;
     fprintf(f, "# Options of the player. Edit by hand or from the menu (F1).\nlanguage=%s\nscaling=%s\nsmooth=%d\nfullscreen=%d\nvolume=%d\nrewind=%d\nborders=%d\n",
             langs[cfg.lang].code, cfg.fit ? "fit" : "integer", cfg.smooth, cfg.fullscreen, cfg.volume, cfg.rewind, cfg.borders);
+    fprintf(f, "touch_opacity=%d\ntouch_size=%d\ntouch_quick=%d\n", cfg.t_opacity, cfg.t_size, cfg.t_quick);
     for (int i = 0; i < rt_opt_count(); i++) fprintf(f, "opt_%s=%d\n", rt_opt_get(i)->id, rt_opt_val[i]);
     for (int i = 0; i < 10; i++) fprintf(f, "key_%s=%s\npad_%s=%d\n", gba_btn[i], SDL_GetScancodeName((SDL_Scancode)kb[i]), gba_btn[i], pb[i]);
     fclose(f);
@@ -175,6 +179,12 @@ static const char *tr(const char *s) {
         {"Switches between a window and the whole screen (F11).", "Alterna entre ventana y pantalla completa (F11)."},
         {"Fills the space at the sides of the picture, on a wide window, with a pattern in the colours of the game.", "Llena el espacio a los lados de la imagen, en una ventana ancha, con un dibujo en los colores del juego."},
         {"Volume of the game's sound.", "Volumen del sonido del juego."},
+        {"Opacity", "Opacidad"}, {"Size", "Tama\xC3\xB1o"}, {"Quick buttons", "Botones r\xC3\xA1pidos"},
+        {"How solid the buttons on the screen look while you are not touching them.", "Lo opacos que se ven los botones de la pantalla cuando no los tocas."},
+        {"Size of the buttons on the screen.", "Tama\xC3\xB1o de los botones de la pantalla."},
+        {"Shows SAVE, LOAD and REWIND at the top of the screen. MENU always stays.", "Muestra SAVE, LOAD y REWIND arriba. MENU siempre se queda."},
+        {"Puts the buttons back to their size and opacity.", "Devuelve los botones a su tama\xC3\xB1o y opacidad."},
+        {"Tap to choose   Tap outside to close", "Toca para elegir   Toca fuera para cerrar"},
         {"Controls", "Controles"}, {"Extras", "Extras"}, {"States", "Estados"}, {"Slot", "Ranura"}, {"Save state", "Guardar estado"}, {"Load state", "Cargar estado"}, {"Rewind", "Rebobinar"},
         {"Hold R (L3 on a controller) to go back in time, up to a minute. Keeping the history costs a little processor time.", "Mant\xC3\xA9n R (L3 en el mando) para volver atr\xC3\xA1s en el tiempo, hasta un minuto. Guardar el historial gasta un poco de procesador."},
         {"Which of the 9 slots Save and Load use (the keys 1 to 9 choose it too).", "Qu\xC3\xA9 ranura de las 9 usan Guardar y Cargar (las teclas 1 a 9 tambi\xC3\xA9n la eligen)."},
@@ -223,6 +233,17 @@ static const Row rows_ctl[] = {
     {"Select", "Choose the key and the controller button for this one. Enter, then press what you want; Esc cancels."},
     {"Restore controls", "Puts every key and button back to its default."},
 };
+static const Row rows_touch[] = {
+    {"Opacity", "How solid the buttons on the screen look while you are not touching them."},
+    {"Size", "Size of the buttons on the screen."},
+    {"Quick buttons", "Shows SAVE, LOAD and REWIND at the top of the screen. MENU always stays."},
+    {"Restore controls", "Puts the buttons back to their size and opacity."},
+};
+static const Row rows_video_touch[] = {
+    {"Scaling", "Whole keeps every pixel the same size and the picture sharp; Fit fills the window, with uneven pixels."},
+    {"Smoothing", "Softens the edges of the scaled picture."},
+    {"Side bars", "Fills the space at the sides of the picture, on a wide window, with a pattern in the colours of the game."},
+};
 static const Row rows_state[] = {
     {"Slot", "Which of the 9 slots Save and Load use (the keys 1 to 9 choose it too)."},
     {"Save state", "Saves the game as it is (F5). It is written at the next step of the game's main loop."},
@@ -231,7 +252,11 @@ static const Row rows_state[] = {
 };
 #define TAB_OPTS 5 /* the options of the game: its rows come from game_opts[] */
 static const Category cats[] = {
+#ifdef __ANDROID__
+    {"Game", rows_game, 4}, {"Video", rows_video_touch, 3}, {"Audio", rows_audio, 1}, {"Controls", rows_touch, 4}, {"States", rows_state, 4},
+#else
     {"Game", rows_game, 4}, {"Video", rows_video, 4}, {"Audio", rows_audio, 1}, {"Controls", rows_ctl, 11}, {"States", rows_state, 4},
+#endif
     {"Extras", NULL, 0},
 };
 #define N_CATS_MAX 6
@@ -248,6 +273,7 @@ static int cat_rows(int t) { return t == TAB_OPTS ? rt_opt_count() : cats[t].n; 
 static int menu_close_req; /* an action that closes the menu (saving or loading a state) */
 static int menu_capture = -1; /* the row waiting for a key or a button, or -1 */
 
+static int menu_free_scroll; /* the rows were dragged: do not force the chosen row into view */
 static int menu_focus /* 0 sidebar, 1 rows */, menu_sel[N_CATS_MAX], menu_off[N_CATS_MAX], menu_dirty = 1;
 
 static const char *pad_name(int b) {
@@ -256,9 +282,20 @@ static const char *pad_name(int b) {
 }
 
 /* The value shown of a row; kind: 0 plain action, 1 choice, 2 bar, 3 a binding. */
+#ifdef __ANDROID__
+#define VROW(tab, r) ((tab) == 1 && (r) >= 2 ? (r) + 1 : (r)) /* no "Full screen" row on a phone */
+#else
+#define VROW(tab, r) (r)
+#endif
 static void row_value(int tab, int r, char *val, size_t n, int *kind, int *pct) {
     *kind = 1; *pct = 0; val[0] = 0;
-    switch (tab * 100 + r) {
+    switch (tab * 100 + VROW(tab, r)) {
+#ifdef __ANDROID__
+    case 300: *kind = 2; *pct = (cfg.t_opacity - 20) * 100 / 80; snprintf(val, n, "%d%%", cfg.t_opacity); break;
+    case 301: snprintf(val, n, "%d%%", cfg.t_size); break;
+    case 302: snprintf(val, n, "%s", tr(cfg.t_quick ? "On" : "Off")); break;
+    case 303: *kind = 0; break;
+#endif
     case 0:  snprintf(val, n, "%s", langs[cfg.lang].name); break;
     case 1: case 2: case 3: *kind = 0; break;
     case 100: snprintf(val, n, "%s", tr(cfg.fit ? "Fit" : "Whole")); break;
@@ -293,7 +330,13 @@ static void row_value(int tab, int r, char *val, size_t n, int *kind, int *pct) 
 
 static void menu_change(int dir) { /* dir: -1, +1, or 0 for Enter */
     int s = menu_sel[menu_tab], d = dir ? dir : 1;
-    switch (menu_tab * 100 + s) {
+    switch (menu_tab * 100 + VROW(menu_tab, s)) {
+#ifdef __ANDROID__
+    case 300: cfg.t_opacity += 10 * d; if (cfg.t_opacity < 20) cfg.t_opacity = 20; if (cfg.t_opacity > 100) cfg.t_opacity = 100; break;
+    case 301: cfg.t_size += 10 * d; if (cfg.t_size < 70) cfg.t_size = 70; if (cfg.t_size > 130) cfg.t_size = 130; break;
+    case 302: cfg.t_quick = !cfg.t_quick; break;
+    case 303: if (dir == 0) { cfg.t_opacity = 100; cfg.t_size = 100; cfg.t_quick = 1; } break;
+#endif
     case 0: cfg.lang = (cfg.lang + d + N_LANGS) % N_LANGS; cfg_save(); apply_language(); break;
     case 1: if (dir == 0) { cfg_save(); apply_language(); } break;
     case 2: if (dir == 0) { int l = cfg.lang; cfg_defaults(); cfg.lang = l; apply_video(); } break;
@@ -399,9 +442,12 @@ static void drawer_draw(Canvas *c) {
     int px = sw + 16, pw = w - px - 12, rh = 20, vis = (h - top - 62) / rh;
     if (vis < 1) vis = 1;
     int *off = &menu_off[menu_tab], sel = menu_sel[menu_tab];
-    if (sel < *off) *off = sel;
-    if (sel >= *off + vis) *off = sel - vis + 1;
     int nrows = cat_rows(menu_tab);
+    if (menu_free_scroll) { if (*off > nrows - vis) *off = nrows - vis; if (*off < 0) *off = 0; }
+    else {
+        if (sel < *off) *off = sel;
+        if (sel >= *off + vis) *off = sel - vis + 1;
+    }
     for (int r = *off; r < nrows && r < *off + vis; r++) {
         int y = top + (r - *off) * rh, on = menu_focus && r == sel;
         char val[48]; int kind, pct;
@@ -410,7 +456,7 @@ static void drawer_draw(Canvas *c) {
         else if (r == sel) cv_rect(c, px - 6, y, 2, rh - 2, ui_mix(th_gold, th_bg, 1, 2));
         text_draw(c, px + 8, y + 5, menu_tab == TAB_OPTS ? opt_text(r, 0) : tr(cat->rows[r].label), on ? th_ink : dim, 1);
         if (kind == 2) {
-            ui_slider(c, px + pw - 74, y + 6, 46, pct);
+            ui_slider(c, px + pw - 8 - text_w(val) - 52, y + 6, 46, pct);
             text_right(c, px + pw - 2, y + 5, val, on ? th_gold : th_ink);
         } else if (kind == 3) {
             text_right(c, px + pw - 4, y + 5, val, menu_capture == r ? th_gold : on ? th_gold : th_ink);
@@ -426,7 +472,17 @@ static void drawer_draw(Canvas *c) {
     /* what the chosen row does, and the keys */
     ui_rule(c, 8, h - 56, w - 18);
     text_wrap(c, 12, h - 48, menu_capture >= 0 ? tr("Press a key or a controller button. Esc cancels.") : menu_tab == TAB_OPTS ? opt_text(sel, 1) : tr(cat->rows[sel].desc), w - 26, 3, menu_capture >= 0 ? th_gold : dim);
+#ifdef __ANDROID__
+    text_draw(c, 12, h - 14, tr("Tap to choose   Tap outside to close"), ui_mix(th_ink, th_bg, 1, 2), 1);
+    { /* the close button: a gold box with a cross, in the corner of the header */
+        int bx = w - 36, by = 8;
+        cv_rect(c, bx, by, 26, 26, th_gold);
+        cv_rect(c, bx + 2, by + 2, 22, 22, th_bg);
+        for (int i = 0; i < 12; i++) { cv_rect(c, bx + 7 + i, by + 7 + i, 2, 2, th_gold); cv_rect(c, bx + 18 - i, by + 7 + i, 2, 2, th_gold); }
+    }
+#else
     text_draw(c, 12, h - 14, tr("Up Down: choose   Enter: change   Esc: back"), ui_mix(th_ink, th_bg, 1, 2), 1);
+#endif
 }
 
 /* The picture of the game in the area right of the drawer, with the scaling and smoothing of the settings. */
@@ -490,7 +546,7 @@ static void menu_compose(uint32_t *win, int ww, int wh) {
 
 static void menu_key(SDL_Keycode k) {
     int rows = cat_rows(menu_tab);
-    menu_dirty = 1;
+    menu_dirty = 1; menu_free_scroll = 0;
     switch (k) {
     case SDLK_UP:
         if (menu_focus) { if (rows) menu_sel[menu_tab] = (menu_sel[menu_tab] + rows - 1) % rows; }
@@ -520,10 +576,10 @@ static int menu_touch(float fx, float fy) {
     int cw = ww / k, ch = wh / k, dw = cw < 290 ? cw : 290;
     int x = (int)(fx / k), y = (int)(fy / k), sw = 84, top = 54;
     menu_dirty = 1;
-    if (x >= dw) return 1;
+    if (x >= dw || (x >= dw - 40 && y < 40)) return 1;
     if (x < sw + 4) {
         int t = (y - top) / 22;
-        if (y >= top && t >= 0 && t < n_cats) { menu_tab = t; menu_focus = 0; }
+        if (y >= top && t >= 0 && t < n_cats) { menu_tab = t; menu_focus = 0; menu_free_scroll = 0; }
         return 0;
     }
     int rh = 20, vis = (ch - top - 62) / rh, px = sw + 16, pw = dw - px - 12;
@@ -531,12 +587,32 @@ static int menu_touch(float fx, float fy) {
     int r = menu_off[menu_tab] + (y - top) / rh;
     if (y < top || r < 0 || r >= cat_rows(menu_tab) || (y - top) / rh >= vis) return 0;
     menu_sel[menu_tab] = r;
-    menu_focus = 1;
+    menu_focus = 1; menu_free_scroll = 0;
     char val[48]; int kind, pct;
     row_value(menu_tab, r, val, sizeof val, &kind, &pct);
     if (kind == 1 || kind == 2) menu_change(x < px + pw / 2 + 20 ? -1 : 1);
     else menu_change(0);
     return 0;
+}
+
+/* A finger dragged over the rows scrolls them when there are more than fit (x, dy in 0..1 of the window). */
+static void menu_drag(float fx, float fdy) {
+    static float acc;
+    int ww, wh;
+    SDL_GetRendererOutputSize(ren, &ww, &wh);
+    double kk = (double)ww / 480 < (double)wh / 270 ? (double)ww / 480 : (double)wh / 270;
+    int k = (int)(kk + 0.5); if (k < 1) k = 1;
+    int top = 54, rh = 20, vis = (wh / k - top - 62) / rh, nrows = cat_rows(menu_tab);
+    if (fx * ww / k < 90 || nrows <= vis) return;
+    acc -= fdy * wh / k;
+    int step = (int)(acc / rh);
+    if (!step) return;
+    acc -= step * rh;
+    int *off = &menu_off[menu_tab];
+    *off += step;
+    if (*off > nrows - vis) *off = nrows - vis;
+    if (*off < 0) *off = 0;
+    menu_free_scroll = 1; menu_dirty = 1;
 }
 
 /* Runs the menu until it closes (Esc in the sidebar, F1, Start on a controller). Returns 1 when the user chose Quit. */
@@ -557,6 +633,7 @@ static int menu_run(void) {
                     else if (e.key.keysym.scancode != SDL_SCANCODE_F1 && e.key.keysym.scancode != SDL_SCANCODE_F11) bind_set(menu_capture, 0, e.key.keysym.scancode);
                 } else if (e.type == SDL_CONTROLLERBUTTONDOWN) bind_set(menu_capture, 1, e.cbutton.button);
             }
+            else if (e.type == SDL_FINGERMOTION) menu_drag(e.tfinger.x, e.tfinger.dy);
             else if (e.type == SDL_FINGERDOWN) { int ww, wh; SDL_GetRendererOutputSize(ren, &ww, &wh); if (menu_touch(e.tfinger.x * ww, e.tfinger.y * wh)) open = 0; }
             else if (e.type == SDL_KEYDOWN) {
                 SDL_Keycode k = e.key.keysym.sym;
@@ -590,11 +667,13 @@ static int menu_run(void) {
             if ((size_t)ww * wh > cap) { free(win); win = malloc((size_t)ww * wh * 4); cap = (size_t)ww * wh; }
             menu_compose(win, ww, wh);
             SDL_UpdateTexture(mt, NULL, win, ww * 4);
+            menu_dirty = 0;
+        }
+        if (mt) { /* drawn every pass: presenting without drawing shows old buffers on Android */
             SDL_RenderClear(ren);
             SDL_RenderCopy(ren, mt, NULL, NULL);
-            SDL_RenderPresent(ren);
-            menu_dirty = 0;
-        } else SDL_RenderPresent(ren);
+        }
+        SDL_RenderPresent(ren);
         SDL_Delay(16);
     }
     if (mt) SDL_DestroyTexture(mt);

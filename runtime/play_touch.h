@@ -19,7 +19,7 @@ static float tu;
 
 static void touch_layout(void) {
     SDL_GetRendererOutputSize(ren, &tw, &th);
-    tu = (tw < th ? tw : th) / 8.5f;
+    tu = (tw < th ? tw : th) / 8.5f * cfg.t_size / 100.0f;
     TouchBtn *b = tbtn;
     b[TB_DPAD].cx = 2.05f * tu; b[TB_DPAD].cy = th - 2.0f * tu; b[TB_DPAD].w = b[TB_DPAD].h = 1.55f * tu; /* half-size of the pad */
     b[TB_A].cx = tw - 1.3f * tu; b[TB_A].cy = th - 2.7f * tu; b[TB_A].w = b[TB_A].h = 0.85f * tu; /* radius */
@@ -31,13 +31,14 @@ static void touch_layout(void) {
     { /* MENU, SAVE, LOAD and REWIND in a row between L and R; when the screen is narrow (portrait) the row goes under them */
         static const int order[4] = {TB_MENU, TB_SAVE, TB_LOAD, TB_REWIND};
         static const float wd[4] = {1.5f, 1.5f, 1.5f, 2.0f};
-        float gap = 0.4f * tu, total = 3 * gap, x;
-        for (int k = 0; k < 4; k++) total += wd[k] * tu;
-        int wide = tw >= 11.5f * tu;
+        float ub = tu * 100.0f / cfg.t_size; /* the row keeps its size when the other buttons grow */
+        float gap = 0.4f * ub, total = 3 * gap, x;
+        for (int k = 0; k < 4; k++) total += wd[k] * ub;
+        int wide = tw >= total + 6.0f * tu;
         x = tw / 2.0f - total / 2;
         for (int k = 0; k < 4; k++) {
             TouchBtn *q = &b[order[k]];
-            q->w = wd[k] * tu; q->h = 0.6f * tu; q->cx = x + q->w / 2; q->cy = (wide ? 0.4f : 1.55f) * tu;
+            q->w = wd[k] * ub; q->h = 0.6f * ub; q->cx = x + q->w / 2; q->cy = (wide ? 0.4f : 1.55f) * ub;
             x += q->w + gap;
         }
     }
@@ -219,6 +220,7 @@ static void touch_init(void) {
 }
 
 static int touch_hit(const TouchBtn *b, float x, float y) {
+    if (!cfg.t_quick && (b == &tbtn[TB_SAVE] || b == &tbtn[TB_LOAD] || b == &tbtn[TB_REWIND])) return 0; /* hidden in the menu */
     float dx = x - b->cx, dy = y - b->cy;
     if (b->shape == 0) return dx * dx + dy * dy <= b->w * b->w * 1.3f; /* a little generous: thumbs are big */
     if (b->shape == 2) return dx > -b->w && dx < b->w && dy > -b->h && dy < b->h;
@@ -296,10 +298,11 @@ static void touch_draw(u32 held) {
     for (int i = 0; i < TB_N; i++) {
         TouchBtn *b = &tbtn[i];
         int down = 0;
+        if (!cfg.t_quick && (i == TB_SAVE || i == TB_LOAD || i == TB_REWIND)) continue;
         if (i == TB_DPAD) down = (held & 0xF0) != 0;
         else if (i == TB_REWIND) down = touch_rewind;
         else if (b->mask) down = (held & b->mask) != 0;
-        int small = i >= TB_SAVE, a = down ? 255 : (small ? 105 : 205);
+        int small = i >= TB_SAVE, a = (down ? 255 : (small ? 105 : 205)) * cfg.t_opacity / 100;
         if (i == TB_DPAD) {
             int target = (int)(2 * b->w);
             tsprite(tspr[i][0], (int)b->cx, (int)b->cy, 65, 65, target, a);
